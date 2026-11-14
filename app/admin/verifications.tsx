@@ -41,6 +41,8 @@ const SEED_VERIFICATIONS: VerificationRequest[] = [
       approx_area: 'Jubilee Hills',
       is_location_visible: true,
       is_onboarded: true,
+      is_age_verified: true,
+      age_assurance_status: 'verified',
       is_suspended: false,
       role: 'user',
       created_at: new Date().toISOString(),

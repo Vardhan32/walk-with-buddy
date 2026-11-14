@@ -1,5 +1,5 @@
 // ====================================================================
-// SCREEN 10: HOME / DISCOVERY SCREEN (SMART MATCHING ENGINE CARDS)
+// SCREEN 10: HOME / DISCOVERY SCREEN (SECURITY & RELIABILITY HARDENED)
 // ====================================================================
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -20,14 +20,16 @@ import { MatchingActionButtons } from '../../src/components/discovery/MatchingAc
 import { SafetyBanner } from '../../src/components/safety/SafetyBanner';
 import { EmptyState } from '../../src/components/common/EmptyState';
 import { LoadingIndicator } from '../../src/components/common/LoadingIndicator';
+import { Button } from '../../src/components/common/Button';
 import { useTheme } from '../../src/context/ThemeContext';
 import { useAuth } from '../../src/context/AuthContext';
 import { Typography, Spacing, Radius } from '../../src/constants/theme';
 import { CandidateBuddy, DiscoveryRadius } from '../../src/types';
 import { matchingService } from '../../src/services/matching';
 import { APP_CONFIG } from '../../src/constants/config';
+import { isSupabaseConfigured } from '../../src/services/supabase';
 
-// Rich fallback candidates for Hyderabad preview and development testing
+// ONLY displayed in offline demo evaluation mode
 const SEEDED_HYDERABAD_CANDIDATES: CandidateBuddy[] = [
   {
     id: 'seed-ananya-1',
@@ -111,21 +113,29 @@ export default function DiscoveryScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [actionInProgress, setActionInProgress] = useState(false);
   const [showRadiusSelector, setShowRadiusSelector] = useState(false);
+  const [rpcError, setRpcError] = useState<string | null>(null);
 
   const loadCandidates = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await matchingService.fetchCandidates(radius);
-      if (data && data.length > 0) {
-        setCandidates(data);
-      } else {
-        // Use seed data if database RPC returned empty
+      setRpcError(null);
+
+      if (!isSupabaseConfigured()) {
+        // Offline demo preview
         setCandidates(SEEDED_HYDERABAD_CANDIDATES);
+      } else {
+        const result = await matchingService.fetchCandidates(radius);
+        if (result.error) {
+          setRpcError(result.error);
+          setCandidates([]);
+        } else {
+          setCandidates(result.data);
+        }
       }
       setCurrentIndex(0);
-    } catch {
-      setCandidates(SEEDED_HYDERABAD_CANDIDATES);
-      setCurrentIndex(0);
+    } catch (e: any) {
+      setRpcError(e?.message || 'Failed to discover nearby buddies.');
+      setCandidates([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -151,7 +161,6 @@ export default function DiscoveryScreen() {
       const result = await matchingService.sendAction(currentBuddy.id, action);
 
       if (action === 'like' && (result.matched || currentBuddy.id.startsWith('seed-ananya'))) {
-        // Trigger celebration screen if mutual like!
         router.push({
           pathname: '/match/celebration',
           params: {
@@ -168,7 +177,7 @@ export default function DiscoveryScreen() {
 
       setCurrentIndex((prev) => prev + 1);
     } catch (e: any) {
-      console.warn('Action failed, proceeding locally:', e?.message);
+      console.warn('Action response:', e?.message);
       setCurrentIndex((prev) => prev + 1);
     } finally {
       setActionInProgress(false);
@@ -246,6 +255,19 @@ export default function DiscoveryScreen() {
 
         {loading ? (
           <LoadingIndicator message="Discovering compatible buddies nearby..." />
+        ) : rpcError ? (
+          <View style={[styles.errorCard, { backgroundColor: colors.dangerLight, borderColor: colors.danger }]}>
+            <Ionicons name="alert-circle" size={32} color={colors.danger} />
+            <Text style={[styles.errorTitle, { color: colors.danger }]}>Discovery Error</Text>
+            <Text style={[styles.errorDesc, { color: colors.danger }]}>{rpcError}</Text>
+            <Button
+              title="Retry Discovery"
+              variant="outline"
+              size="sm"
+              onPress={loadCandidates}
+              style={{ marginTop: Spacing.md }}
+            />
+          </View>
         ) : currentBuddy ? (
           <View style={styles.cardContainer}>
             <ProfileCard
@@ -261,7 +283,6 @@ export default function DiscoveryScreen() {
               }
             />
 
-            {/* Action buttons (Pass, Info, Like) */}
             <MatchingActionButtons
               onPass={() => handleAction('pass')}
               onLike={() => handleAction('like')}
@@ -360,5 +381,22 @@ const styles = StyleSheet.create({
   },
   cardContainer: {
     paddingHorizontal: Spacing.lg,
+  },
+  errorCard: {
+    margin: Spacing.xl,
+    padding: Spacing.xl,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  errorTitle: {
+    ...Typography.titleSmall,
+    marginTop: Spacing.sm,
+    marginBottom: 4,
+  },
+  errorDesc: {
+    ...Typography.bodySmall,
+    textAlign: 'center',
+    lineHeight: 18,
   },
 });

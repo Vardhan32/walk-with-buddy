@@ -1,21 +1,35 @@
 // ====================================================================
-// WALK WITH BUDDY - REALTIME CHAT SERVICE
+// WALK WITH BUDDY - REALTIME CHAT SERVICE (SECURITY HARDENED)
 // ====================================================================
 
-import { supabase } from './supabase';
+import { supabase, isSupabaseConfigured } from './supabase';
 import { Message } from '../types';
 
 export const chatService = {
   /**
-   * Fetches past conversation messages
+   * Fetches conversation messages with optional pagination
    */
-  async fetchMessages(matchId: string): Promise<Message[]> {
-    const { data, error } = await supabase
+  async fetchMessages(
+    matchId: string,
+    limit = 50,
+    beforeTimestamp?: string
+  ): Promise<Message[]> {
+    if (!isSupabaseConfigured()) {
+      return [];
+    }
+
+    let query = supabase
       .from('messages')
       .select('*')
       .eq('match_id', matchId)
-      .order('created_at', { ascending: true });
+      .order('created_at', { ascending: true })
+      .limit(limit);
 
+    if (beforeTimestamp) {
+      query = query.lt('created_at', beforeTimestamp);
+    }
+
+    const { data, error } = await query;
     if (error) throw error;
     return (data || []) as Message[];
   },
@@ -27,6 +41,18 @@ export const chatService = {
     const trimmed = content.trim();
     if (!trimmed) {
       throw new Error('Message cannot be empty');
+    }
+
+    if (!isSupabaseConfigured()) {
+      return {
+        id: `mock-${Date.now()}`,
+        match_id: matchId,
+        sender_id: senderId,
+        content: trimmed,
+        is_read: false,
+        created_at: new Date().toISOString(),
+        delivery_status: 'sent',
+      };
     }
 
     const { data, error } = await supabase
@@ -41,26 +67,33 @@ export const chatService = {
       .single();
 
     if (error) throw error;
-    return data as Message;
+    return { ...data, delivery_status: 'sent' } as Message;
   },
 
   /**
-   * Marks unread incoming messages as read
+   * Secure read-receipt RPC call (Prevents message column tampering)
    */
-  async markMessagesAsRead(matchId: string, currentUserId: string): Promise<void> {
-    await supabase
-      .from('messages')
-      .update({ is_read: true })
-      .eq('match_id', matchId)
-      .neq('sender_id', currentUserId)
-      .eq('is_read', false);
+  async markMessagesAsRead(matchId: string): Promise<void> {
+    if (!isSupabaseConfigured()) return;
+
+    const { error } = await supabase.rpc('mark_messages_read', {
+      p_match_id: matchId,
+    });
+
+    if (error) {
+      console.warn('mark_messages_read RPC error:', error.message);
+    }
   },
 
   /**
-   * Subscribes to Supabase Realtime messages for an active match
+   * Subscribes to Supabase Realtime messages for an active match with reliable cleanup
    */
   subscribeToMessages(matchId: string, onNewMessage: (msg: Message) => void) {
-    const channelName = `realtime-chat-${matchId}`;
+    if (!isSupabaseConfigured()) {
+      return () => {};
+    }
+
+    const channelName = `realtime-chat-${matchId}-${Date.now()}`;
     const channel = supabase
       .channel(channelName)
       .on(

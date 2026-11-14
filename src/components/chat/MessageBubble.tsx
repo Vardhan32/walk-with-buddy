@@ -1,9 +1,9 @@
 // ====================================================================
-// WALK WITH BUDDY - MESSAGE BUBBLE COMPONENT
+// WALK WITH BUDDY - MESSAGE BUBBLE COMPONENT (STATUS & RETRY ENABLED)
 // ====================================================================
 
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Message } from '../../types';
 import { useTheme } from '../../context/ThemeContext';
@@ -12,9 +12,10 @@ import { Typography, Spacing, Radius } from '../../constants/theme';
 interface MessageBubbleProps {
   message: Message;
   isMine: boolean;
+  onRetry?: (message: Message) => void;
 }
 
-export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isMine }) => {
+export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isMine, onRetry }) => {
   const { colors } = useTheme();
 
   const formattedTime = new Date(message.created_at).toLocaleTimeString([], {
@@ -22,27 +23,35 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isMine })
     minute: '2-digit',
   });
 
+  const isFailed = message.delivery_status === 'failed';
+  const isSending = message.delivery_status === 'sending';
+
   return (
-    <View
-      style={[
-        styles.row,
-        isMine ? styles.myRow : styles.partnerRow,
-      ]}
-    >
+    <View style={[styles.row, isMine ? styles.myRow : styles.partnerRow]}>
+      {isMine && isFailed && onRetry && (
+        <TouchableOpacity
+          onPress={() => onRetry(message)}
+          style={styles.retryButton}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="refresh-circle" size={20} color={colors.danger} />
+        </TouchableOpacity>
+      )}
+
       <View
         style={[
           styles.bubble,
           isMine
-            ? [styles.myBubble, { backgroundColor: colors.primary }]
+            ? [
+                styles.myBubble,
+                {
+                  backgroundColor: isFailed ? colors.danger : colors.primary,
+                },
+              ]
             : [styles.partnerBubble, { backgroundColor: colors.surface }],
         ]}
       >
-        <Text
-          style={[
-            styles.text,
-            { color: isMine ? '#FFFFFF' : colors.text },
-          ]}
-        >
+        <Text style={[styles.text, { color: isMine ? '#FFFFFF' : colors.text }]}>
           {message.content}
         </Text>
         <View style={styles.metaRow}>
@@ -54,13 +63,21 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isMine })
           >
             {formattedTime}
           </Text>
+
           {isMine && (
-            <Ionicons
-              name={message.is_read ? 'checkmark-done' : 'checkmark'}
-              size={13}
-              color={message.is_read ? '#E0F2FE' : 'rgba(255,255,255,0.7)'}
-              style={{ marginLeft: 3 }}
-            />
+            <View style={styles.statusIconWrap}>
+              {isSending ? (
+                <Ionicons name="time-outline" size={12} color="rgba(255,255,255,0.7)" />
+              ) : isFailed ? (
+                <Ionicons name="alert-circle" size={12} color="#FFFFFF" />
+              ) : (
+                <Ionicons
+                  name={message.is_read ? 'checkmark-done' : 'checkmark'}
+                  size={13}
+                  color={message.is_read ? '#E0F2FE' : 'rgba(255,255,255,0.7)'}
+                />
+              )}
+            </View>
           )}
         </View>
       </View>
@@ -73,12 +90,17 @@ const styles = StyleSheet.create({
     marginVertical: 4,
     paddingHorizontal: Spacing.md,
     flexDirection: 'row',
+    alignItems: 'flex-end',
   },
   myRow: {
     justifyContent: 'flex-end',
   },
   partnerRow: {
     justifyContent: 'flex-start',
+  },
+  retryButton: {
+    padding: Spacing.xs,
+    marginRight: 4,
   },
   bubble: {
     maxWidth: '78%',
@@ -105,5 +127,8 @@ const styles = StyleSheet.create({
   time: {
     ...Typography.caption,
     fontSize: 10,
+  },
+  statusIconWrap: {
+    marginLeft: 4,
   },
 });

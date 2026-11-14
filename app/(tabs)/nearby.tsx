@@ -1,5 +1,5 @@
 // ====================================================================
-// SCREEN 11: NEARBY PEOPLE (GEOGRAPHIC PROXIMITY GRID & FILTERS)
+// SCREEN 11: NEARBY PEOPLE (SECURITY & RELIABILITY HARDENED)
 // ====================================================================
 
 import React, { useState, useEffect } from 'react';
@@ -17,14 +17,15 @@ import { Ionicons } from '@expo/vector-icons';
 import { ScreenContainer } from '../../src/components/common/ScreenContainer';
 import { Header } from '../../src/components/common/Header';
 import { Input } from '../../src/components/common/Input';
-import { Badge } from '../../src/components/common/Badge';
 import { EmptyState } from '../../src/components/common/EmptyState';
 import { LoadingIndicator } from '../../src/components/common/LoadingIndicator';
 import { useTheme } from '../../src/context/ThemeContext';
 import { Typography, Spacing, Radius } from '../../src/constants/theme';
 import { CandidateBuddy } from '../../src/types';
 import { matchingService } from '../../src/services/matching';
+import { isSupabaseConfigured } from '../../src/services/supabase';
 
+// ONLY displayed in offline demo evaluation mode
 const FALLBACK_NEARBY: CandidateBuddy[] = [
   {
     id: 'seed-ananya-1',
@@ -94,22 +95,6 @@ const FALLBACK_NEARBY: CandidateBuddy[] = [
     shared_interests: ['Startups', 'Entrepreneurship', 'Business'],
     compatibility_score: 84,
   },
-  {
-    id: 'seed-sneha-5',
-    display_name: 'Sneha Patel',
-    age: 24,
-    bio: 'Architect working on sustainable urban spaces. Exploring heritage sites.',
-    avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80',
-    profession: 'Architect',
-    is_profession_verified: false,
-    preferred_activities: ['explore_city', 'coffee_chat'],
-    preferred_walking_distance: 'short_1_2km',
-    walking_pace: 'relaxed',
-    approx_distance_km: 5.5,
-    approx_area: 'Banjara Hills',
-    shared_interests: ['Art', 'Nature', 'Travel'],
-    compatibility_score: 79,
-  },
 ];
 
 export default function NearbyScreen() {
@@ -123,14 +108,16 @@ export default function NearbyScreen() {
 
   const loadData = async () => {
     try {
-      const data = await matchingService.fetchCandidates(15);
-      if (data && data.length > 0) {
-        setBuddies(data);
-      } else {
+      setLoading(true);
+      if (!isSupabaseConfigured()) {
         setBuddies(FALLBACK_NEARBY);
+      } else {
+        const result = await matchingService.fetchCandidates(15);
+        setBuddies(result.data);
       }
     } catch {
-      setBuddies(FALLBACK_NEARBY);
+      if (!isSupabaseConfigured()) setBuddies(FALLBACK_NEARBY);
+      else setBuddies([]);
     } finally {
       setLoading(false);
       setRefreshing(false);

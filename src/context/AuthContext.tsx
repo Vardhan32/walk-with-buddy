@@ -41,6 +41,8 @@ const DEMO_USER_PROFILE: Profile = {
   approx_area: 'Hitec City',
   is_location_visible: true,
   is_onboarded: true,
+  is_age_verified: true,
+  age_assurance_status: 'verified',
   is_suspended: false,
   role: 'admin', // Allows testing both user and admin views
   created_at: new Date().toISOString(),
