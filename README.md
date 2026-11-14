@@ -159,11 +159,39 @@ eas build --platform android --profile production
 4. **Instant Block & Report**: Blocking a user immediately deactivates matches and prevents any future communication or discovery.
 5. **Emergency Contacts**: One-tap access to Hyderabad Police (100) and She Teams (9490616555).
 
+## 🛡️ Security Audit & Reliability Repairs (`security-and-reliability-fixes`)
+
+A rigorous codebase audit and security repair was conducted across the database schema, RPC functions, and frontend services:
+
+### 1. Database & Row Level Security (RLS) Hardening
+- **Protected Profiles SELECT Policy**: Standard users can only `SELECT` their own profile (`auth.uid() = id OR is_admin()`), preventing mass harvesting of private profile columns.
+- **Safe Public Profile View (`public_profiles`)**: Allowlisted projection exposing only non-sensitive columns (`id`, `display_name`, `age`, `avatar_url`, `profession`, `is_profession_verified`, `verification_badge_title`, `preferred_activities`, `preferred_walking_distance`, `walking_pace`, `approx_city`, `approx_area`, `is_location_visible`, `created_at`). Strictly strips `email`, exact `latitude`/`longitude`, `date_of_birth`, internal `role`, and `is_suspended`.
+- **Private Coordinates Storage (`user_locations`)**: Raw coordinates are isolated in an independent `user_locations` table protected by strict RLS (`auth.uid() = user_id`).
+- **Privilege Escalation Prevention**: `BEFORE UPDATE` trigger on `profiles` rejects unauthorized user modification of `role`, `is_profession_verified`, `verification_badge_title`, `is_suspended`, `is_age_verified`, `age_assurance_status`, and `email`.
+- **Immutable Message Read Receipts (`mark_messages_read` RPC)**: Revoked broad `UPDATE` privileges on `messages`. Replaced with a dedicated `SECURITY DEFINER` RPC that only modifies `is_read = true` for messages in active, unblocked matches, preventing message content tampering or sender spoofing.
+- **Function Security & Search Path**: All `SECURITY DEFINER` functions enforce `SET search_path = public, pg_temp;` and revoke default execution rights from `PUBLIC` and `anon`.
+- **Server-Side Account Deletion (`delete_own_account` RPC)**: Secure RPC executing `DELETE FROM auth.users WHERE id = auth.uid();` ensuring full CASCADE deletion across all tables and real `auth.users` erasure.
+- **Location Validation & Rate Limiting**: Added `[-90, 90]` and `[-180, 180]` coordinate validation and a 30-second server rate limit to prevent spoofing or database flooding.
+
+### 2. Age Assurance & Account Integrity
+- Server-side validation calculates age from `date_of_birth` and strictly rejects `< 18`.
+- Removed fabricated default birth dates (`'2000-01-01'`) and ages (`24`) from user creation triggers.
+- Enforced age assurance checks across candidate discovery and matching RPCs.
+
+### 3. Real-Time Chat & Discovery Reliability
+- Separated Demo Chat from Live Supabase Chat: seeded mock messages never render in live matches.
+- Delivery status tracking (`sending`, `sent`, `failed`) with in-bubble tap-to-retry mechanism.
+- Deduplication of incoming messages by server `id` and client-generated `client_id`.
+- Cursor-based pagination (`beforeTimestamp`) to load older messages smoothly.
+- Inactive / blocked match banner disabling chat input when conversation is closed.
+- Realtime subscription cleanup with channel unbinding to prevent memory leaks.
+- Matching engine errors surfaced to the user with a retry button instead of silently showing empty candidate lists.
+
 ---
 
-## 🔮 Production Readiness & Future Enhancements
+## 🔮 Production Limitations & Launch Roadmap
 
 Before launching publicly on the Google Play Store:
-1. **Automated Push Notifications**: Configure Firebase Cloud Messaging (FCM) via Expo Notifications for instant alert when a mutual match or chat message arrives.
-2. **Third-Party Identity API**: Integrate Digilocker / Aadhaar XML or LinkedIn OAuth for automated professional verification.
-3. **Google Maps SDK / Mapbox**: Add an interactive Hyderabad trail map overlay if users request route tracing.
+1. **Remote Push Notifications**: Requires configuring Firebase Cloud Messaging (FCM) credentials in Expo Application Services (EAS) for background match alerts when the app is closed.
+2. **Third-Party Identity Integration**: Professional badge verification currently utilizes document upload with admin dashboard approval. Future releases can integrate DigiLocker / Aadhaar XML or LinkedIn OAuth for automated verification.
+3. **Interactive Trail Maps**: The app currently uses reverse geocoding and coarse distance calculations. Adding Google Maps SDK or Mapbox vector tiles will allow visual trail overlays.
