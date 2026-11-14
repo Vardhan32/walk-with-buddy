@@ -36,6 +36,8 @@ export interface Profile {
   approx_area: string;
   is_location_visible: boolean;
   is_onboarded: boolean;
+  is_age_verified: boolean;
+  age_assurance_status: 'pending' | 'verified' | 'rejected';
   is_suspended: boolean;
   role: UserRole;
   created_at: string;
@@ -96,6 +98,8 @@ export interface Message {
   content: string;
   is_read: boolean;
   created_at: string;
+  delivery_status?: 'sending' | 'sent' | 'failed';
+  client_id?: string;
 }
 
 export interface LikeActionResponse {

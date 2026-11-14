@@ -1,8 +1,8 @@
 // ====================================================================
-// WALK WITH BUDDY - AUTHENTICATION SERVICE
+// WALK WITH BUDDY - AUTHENTICATION SERVICE (SECURITY HARDENED)
 // ====================================================================
 
-import { supabase } from './supabase';
+import { supabase, isSupabaseConfigured } from './supabase';
 import { GenderPreferenceType, GenderType } from '../types';
 
 export interface SignUpParams {
@@ -49,8 +49,10 @@ export const authService = {
   },
 
   async signOut() {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
+    if (isSupabaseConfigured()) {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+    }
   },
 
   async resetPassword(email: string) {
@@ -73,14 +75,19 @@ export const authService = {
     return user;
   },
 
+  /**
+   * Secure account deletion:
+   * Uses server-side RPC delete_own_account to cleanly wipe auth.users and all cascading data.
+   * Throws an error immediately if the server fails so the client never reports false success.
+   */
   async deleteAccount(userId: string) {
-    // Delete profile and cascade will remove user data
-    const { error } = await supabase
-      .from('profiles')
-      .delete()
-      .eq('id', userId);
-    
-    if (error) throw error;
-    await supabase.auth.signOut();
+    if (isSupabaseConfigured()) {
+      const { error: rpcError } = await supabase.rpc('delete_own_account');
+      if (rpcError) {
+        console.error('Account deletion RPC failed:', rpcError.message);
+        throw new Error(`Failed to delete account: ${rpcError.message}`);
+      }
+      await supabase.auth.signOut();
+    }
   },
 };

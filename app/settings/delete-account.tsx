@@ -45,12 +45,14 @@ export default function DeleteAccountScreen() {
               } else {
                 await signOut();
               }
-              Alert.alert('Account Deleted', 'Your account has been permanently removed.');
+              Alert.alert('Account Deleted', 'Your account and associated data have been permanently removed.');
               router.replace('/welcome');
             } catch (e: any) {
-              Alert.alert('Notice', 'Account data purged.');
-              await signOut();
-              router.replace('/welcome');
+              console.error('Account deletion failure:', e);
+              Alert.alert(
+                'Deletion Failed',
+                e?.message || 'Could not delete your account at this time. Please check your connection and try again.'
+              );
             } finally {
               setLoading(false);
             }

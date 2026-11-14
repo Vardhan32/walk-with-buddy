@@ -1,9 +1,9 @@
 // ====================================================================
-// WALK WITH BUDDY - LOCATION & PRIVACY SERVICE
+// WALK WITH BUDDY - LOCATION & PRIVACY SERVICE (SECURITY HARDENED)
 // ====================================================================
 
 import * as Location from 'expo-location';
-import { supabase } from './supabase';
+import { supabase, isSupabaseConfigured } from './supabase';
 import { APP_CONFIG } from '../constants/config';
 
 let lastUpdateTimestamp = 0;
@@ -37,10 +37,12 @@ export const locationService = {
         accuracy: Location.Accuracy.Balanced, // Approximate / coarse accuracy for privacy
       });
 
-      return {
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-      };
+      const { latitude, longitude } = location.coords;
+      if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+        return null;
+      }
+
+      return { latitude, longitude };
     } catch (e) {
       console.warn('Failed to obtain device coordinates:', e);
       return null;
@@ -67,13 +69,22 @@ export const locationService = {
   },
 
   /**
-   * Updates user location securely on the server with rate limiting
+   * Updates user location securely on the server with client & server-side rate limiting
    */
   async syncLocationToServer(lat: number, lon: number, areaName?: string): Promise<boolean> {
+    if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+      console.warn('Invalid coordinates rejected:', lat, lon);
+      return false;
+    }
+
     const now = Date.now();
     if (now - lastUpdateTimestamp < APP_CONFIG.minLocationUpdateIntervalMs) {
-      // Skip frequent updates to conserve battery & network
       return false;
+    }
+
+    if (!isSupabaseConfigured()) {
+      lastUpdateTimestamp = now;
+      return true;
     }
 
     try {

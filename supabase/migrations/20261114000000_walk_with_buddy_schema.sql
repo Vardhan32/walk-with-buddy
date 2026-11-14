@@ -7,7 +7,31 @@
 -- 1. EXTENSIONS
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- 2. PROFILES TABLE
+-- 2. USER ROLES FOR RESTRICTED ACCESS (Created first for role checks)
+CREATE TABLE IF NOT EXISTS public.user_roles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE UNIQUE,
+    role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'moderator', 'admin')),
+    assigned_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_roles_user ON public.user_roles(user_id);
+
+-- Secure helper function for admin role verification
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 FROM public.user_roles
+        WHERE user_id = auth.uid() AND role = 'admin'
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp STABLE;
+
+REVOKE EXECUTE ON FUNCTION public.is_admin() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.is_admin() TO authenticated;
+
+-- 3. PROFILES TABLE (Protected with RLS; exact coordinates stored in isolated user_locations)
 CREATE TABLE IF NOT EXISTS public.profiles (
     id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
     email TEXT,
@@ -25,26 +49,34 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     preferred_walking_distance TEXT DEFAULT 'medium' CHECK (preferred_walking_distance IN ('short_1_2km', 'medium_3_5km', 'long_5km_plus')),
     walking_pace TEXT DEFAULT 'moderate' CHECK (walking_pace IN ('relaxed', 'moderate', 'brisk')),
     discovery_radius_km INTEGER DEFAULT 5 CHECK (discovery_radius_km IN (1, 2, 5, 10, 15)),
-    -- Coordinates stored securely; never returned directly to other users in discovery queries
-    latitude DOUBLE PRECISION,
-    longitude DOUBLE PRECISION,
     approx_city TEXT DEFAULT 'Hyderabad',
     approx_area TEXT DEFAULT 'Hitec City',
     is_location_visible BOOLEAN NOT NULL DEFAULT true,
     is_onboarded BOOLEAN NOT NULL DEFAULT false,
+    is_age_verified BOOLEAN NOT NULL DEFAULT false,
+    age_assurance_status TEXT NOT NULL DEFAULT 'pending' CHECK (age_assurance_status IN ('pending', 'verified', 'rejected')),
     is_suspended BOOLEAN NOT NULL DEFAULT false,
     role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'moderator', 'admin')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Index for spatial and query performance
-CREATE INDEX IF NOT EXISTS idx_profiles_location ON public.profiles(latitude, longitude);
 CREATE INDEX IF NOT EXISTS idx_profiles_role ON public.profiles(role);
 CREATE INDEX IF NOT EXISTS idx_profiles_gender ON public.profiles(gender);
 CREATE INDEX IF NOT EXISTS idx_profiles_gender_pref ON public.profiles(gender_preference);
 
--- 3. INTERESTS CATALOG
+-- 4. ISOLATED SENSITIVE LOCATION TABLE (RLS PROTECTED)
+CREATE TABLE IF NOT EXISTS public.user_locations (
+    user_id UUID PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
+    latitude DOUBLE PRECISION NOT NULL CHECK (latitude BETWEEN -90.0 AND 90.0),
+    longitude DOUBLE PRECISION NOT NULL CHECK (longitude BETWEEN -180.0 AND 180.0),
+    approx_area TEXT DEFAULT 'Hyderabad',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_locations_coords ON public.user_locations(latitude, longitude);
+
+-- 5. INTERESTS CATALOG
 CREATE TABLE IF NOT EXISTS public.interests (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT UNIQUE NOT NULL,
@@ -77,7 +109,7 @@ INSERT INTO public.interests (name, category, icon) VALUES
 ('Learning', 'Culture & Mind', 'globe')
 ON CONFLICT (name) DO NOTHING;
 
--- 4. USER INTERESTS MAPPING
+-- 6. USER INTERESTS MAPPING
 CREATE TABLE IF NOT EXISTS public.user_interests (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
@@ -89,7 +121,7 @@ CREATE TABLE IF NOT EXISTS public.user_interests (
 CREATE INDEX IF NOT EXISTS idx_user_interests_user ON public.user_interests(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_interests_interest ON public.user_interests(interest_id);
 
--- 5. USER AVAILABILITY
+-- 7. USER AVAILABILITY
 CREATE TABLE IF NOT EXISTS public.availability (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
@@ -99,7 +131,7 @@ CREATE TABLE IF NOT EXISTS public.availability (
     UNIQUE(user_id, day_slot)
 );
 
--- 6. LIKES AND PASSES
+-- 8. LIKES AND PASSES
 CREATE TABLE IF NOT EXISTS public.likes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     sender_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
@@ -113,7 +145,7 @@ CREATE TABLE IF NOT EXISTS public.likes (
 CREATE INDEX IF NOT EXISTS idx_likes_sender ON public.likes(sender_id);
 CREATE INDEX IF NOT EXISTS idx_likes_receiver ON public.likes(receiver_id);
 
--- 7. MUTUAL MATCHES
+-- 9. MUTUAL MATCHES
 CREATE TABLE IF NOT EXISTS public.matches (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user1_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
@@ -124,7 +156,6 @@ CREATE TABLE IF NOT EXISTS public.matches (
     last_message_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     last_message_snippet TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    -- Enforce user1_id < user2_id to guarantee unique pair and eliminate race conditions
     CHECK (user1_id < user2_id),
     UNIQUE(user1_id, user2_id)
 );
@@ -132,7 +163,7 @@ CREATE TABLE IF NOT EXISTS public.matches (
 CREATE INDEX IF NOT EXISTS idx_matches_users ON public.matches(user1_id, user2_id);
 CREATE INDEX IF NOT EXISTS idx_matches_active ON public.matches(is_active);
 
--- 8. REAL-TIME CHAT MESSAGES
+-- 10. REAL-TIME CHAT MESSAGES
 CREATE TABLE IF NOT EXISTS public.messages (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     match_id UUID NOT NULL REFERENCES public.matches(id) ON DELETE CASCADE,
@@ -144,7 +175,7 @@ CREATE TABLE IF NOT EXISTS public.messages (
 
 CREATE INDEX IF NOT EXISTS idx_messages_match ON public.messages(match_id, created_at);
 
--- 9. USER BLOCKS
+-- 11. USER BLOCKS
 CREATE TABLE IF NOT EXISTS public.blocks (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     blocker_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
@@ -158,7 +189,7 @@ CREATE TABLE IF NOT EXISTS public.blocks (
 CREATE INDEX IF NOT EXISTS idx_blocks_blocker ON public.blocks(blocker_id);
 CREATE INDEX IF NOT EXISTS idx_blocks_blocked ON public.blocks(blocked_id);
 
--- 10. USER REPORTS & MODERATION
+-- 12. USER REPORTS & MODERATION
 CREATE TABLE IF NOT EXISTS public.reports (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     reporter_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
@@ -182,7 +213,7 @@ CREATE TABLE IF NOT EXISTS public.reports (
 
 CREATE INDEX IF NOT EXISTS idx_reports_status ON public.reports(status);
 
--- 11. PROFESSIONAL VERIFICATION REQUESTS
+-- 13. PROFESSIONAL VERIFICATION REQUESTS
 CREATE TABLE IF NOT EXISTS public.verification_requests (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
@@ -199,24 +230,42 @@ CREATE TABLE IF NOT EXISTS public.verification_requests (
 
 CREATE INDEX IF NOT EXISTS idx_verifications_status ON public.verification_requests(status);
 
--- 12. USER ROLES FOR RESTRICTED ACCESS
-CREATE TABLE IF NOT EXISTS public.user_roles (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE UNIQUE,
-    role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'moderator', 'admin')),
-    assigned_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
 -- ====================================================================
 -- TRIGGERS & AUTOMATION
 -- ====================================================================
 
 -- Trigger: Automatically create public.profiles and default public.user_roles when user registers
+-- NEVER trusts fabricated dates; strictly validates date_of_birth
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 DECLARE
-    calculated_age INTEGER := 25;
+    dob_text TEXT;
+    parsed_dob DATE := NULL;
+    calculated_age INTEGER := NULL;
+    is_verified BOOLEAN := false;
+    age_status TEXT := 'pending';
 BEGIN
+    dob_text := NEW.raw_user_meta_data->>'date_of_birth';
+
+    IF dob_text IS NOT NULL AND dob_text != '' THEN
+        BEGIN
+            parsed_dob := dob_text::DATE;
+            calculated_age := DATE_PART('year', AGE(CURRENT_DATE, parsed_dob))::INTEGER;
+            IF calculated_age >= 18 THEN
+                is_verified := true;
+                age_status := 'verified';
+            ELSE
+                is_verified := false;
+                age_status := 'rejected';
+            END IF;
+        EXCEPTION WHEN OTHERS THEN
+            parsed_dob := NULL;
+            calculated_age := NULL;
+            is_verified := false;
+            age_status := 'pending';
+        END;
+    END IF;
+
     INSERT INTO public.profiles (
         id,
         email,
@@ -229,19 +278,23 @@ BEGIN
         bio,
         profession,
         is_onboarded,
+        is_age_verified,
+        age_assurance_status,
         role
     ) VALUES (
         NEW.id,
         NEW.email,
         COALESCE(NEW.raw_user_meta_data->>'display_name', split_part(NEW.email, '@', 1)),
-        COALESCE((NEW.raw_user_meta_data->>'date_of_birth')::DATE, '2000-01-01'::DATE),
-        COALESCE((NEW.raw_user_meta_data->>'age')::INTEGER, 24),
+        parsed_dob,
+        calculated_age,
         COALESCE(NEW.raw_user_meta_data->>'avatar_url', ''),
         COALESCE(NEW.raw_user_meta_data->>'gender', 'prefer_not_to_say'),
         COALESCE(NEW.raw_user_meta_data->>'gender_preference', 'all'),
         COALESCE(NEW.raw_user_meta_data->>'bio', 'Excited to explore Hyderabad and meet interesting people!'),
         COALESCE(NEW.raw_user_meta_data->>'profession', 'Professional'),
         false,
+        is_verified,
+        age_status,
         'user'
     )
     ON CONFLICT (id) DO NOTHING;
@@ -252,30 +305,66 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
     AFTER INSERT ON auth.users
     FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
--- Trigger: Update profile timestamp
-CREATE OR REPLACE FUNCTION public.handle_profile_updated()
+-- Trigger: Enforce security & validate age on profile update
+CREATE OR REPLACE FUNCTION public.handle_profile_before_update()
 RETURNS TRIGGER AS $$
+DECLARE
+    caller_is_admin BOOLEAN := public.is_admin();
+    calculated_age INTEGER;
 BEGIN
     NEW.updated_at = now();
-    -- Keep age updated if date_of_birth changes
-    IF NEW.date_of_birth IS NOT NULL THEN
-        NEW.age = DATE_PART('year', AGE(now(), NEW.date_of_birth));
+
+    -- Protect administrative fields from client modification
+    IF NOT caller_is_admin THEN
+        IF NEW.role IS DISTINCT FROM OLD.role THEN
+            RAISE EXCEPTION 'Unauthorized: Users cannot modify their role';
+        END IF;
+        IF NEW.is_profession_verified IS DISTINCT FROM OLD.is_profession_verified THEN
+            RAISE EXCEPTION 'Unauthorized: Users cannot modify profession verification status';
+        END IF;
+        IF NEW.verification_badge_title IS DISTINCT FROM OLD.verification_badge_title THEN
+            RAISE EXCEPTION 'Unauthorized: Users cannot modify verification badge';
+        END IF;
+        IF NEW.is_suspended IS DISTINCT FROM OLD.is_suspended THEN
+            RAISE EXCEPTION 'Unauthorized: Users cannot modify account suspension status';
+        END IF;
+        IF NEW.age_assurance_status IS DISTINCT FROM OLD.age_assurance_status THEN
+            RAISE EXCEPTION 'Unauthorized: Users cannot modify age assurance status';
+        END IF;
+        IF NEW.email IS DISTINCT FROM OLD.email THEN
+            RAISE EXCEPTION 'Email must be changed via authentication service';
+        END IF;
     END IF;
+
+    -- Strict backend age calculation
+    IF NEW.date_of_birth IS NOT NULL THEN
+        calculated_age := DATE_PART('year', AGE(CURRENT_DATE, NEW.date_of_birth))::INTEGER;
+        NEW.age := calculated_age;
+        IF calculated_age < 18 THEN
+            NEW.is_age_verified := false;
+            NEW.age_assurance_status := 'rejected';
+            NEW.is_onboarded := false;
+        ELSE
+            NEW.is_age_verified := true;
+            NEW.age_assurance_status := 'verified';
+        END IF;
+    END IF;
+
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
-DROP TRIGGER IF EXISTS on_profile_updated ON public.profiles;
-CREATE TRIGGER on_profile_updated
+DROP TRIGGER IF EXISTS on_profile_before_update ON public.profiles;
+CREATE TRIGGER on_profile_before_update
     BEFORE UPDATE ON public.profiles
-    FOR EACH ROW EXECUTE FUNCTION public.handle_profile_updated();
+    FOR EACH ROW EXECUTE FUNCTION public.handle_profile_before_update();
 
 -- Trigger: When message is sent, update match timestamp and snippet
 CREATE OR REPLACE FUNCTION public.handle_new_message()
@@ -287,7 +376,7 @@ BEGIN
     WHERE id = NEW.match_id;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 DROP TRIGGER IF EXISTS on_message_created ON public.messages;
 CREATE TRIGGER on_message_created
@@ -306,14 +395,14 @@ CREATE OR REPLACE FUNCTION public.calculate_haversine_distance(
 )
 RETURNS DOUBLE PRECISION AS $$
 DECLARE
-    r DOUBLE PRECISION := 6371; -- Earth's radius in kilometers
+    r DOUBLE PRECISION := 6371; -- Earth radius in km
     dlat DOUBLE PRECISION;
     dlon DOUBLE PRECISION;
     a DOUBLE PRECISION;
     c DOUBLE PRECISION;
 BEGIN
     IF lat1 IS NULL OR lon1 IS NULL OR lat2 IS NULL OR lon2 IS NULL THEN
-        RETURN 5.0; -- Default fallback approximate distance
+        RETURN 5.0;
     END IF;
 
     dlat := radians(lat2 - lat1);
@@ -322,9 +411,8 @@ BEGIN
     c := 2.0 * atan2(sqrt(a), sqrt(1.0 - a));
     RETURN ROUND((r * c)::numeric, 1);
 END;
-$$ LANGUAGE plpgsql IMMUTABLE;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
--- Gender mutual compatibility checker
 CREATE OR REPLACE FUNCTION public.check_gender_compatibility(
     my_gender TEXT,
     my_pref TEXT,
@@ -336,7 +424,6 @@ DECLARE
     me_accepts_them BOOLEAN := false;
     them_accepts_me BOOLEAN := false;
 BEGIN
-    -- Check if I accept their gender
     IF my_pref = 'all' THEN
         me_accepts_them := true;
     ELSIF my_pref = 'men' AND their_gender IN ('male') THEN
@@ -347,7 +434,6 @@ BEGIN
         me_accepts_them := true;
     END IF;
 
-    -- Check if they accept my gender
     IF their_pref = 'all' THEN
         them_accepts_me := true;
     ELSIF their_pref = 'men' AND my_gender IN ('male') THEN
@@ -360,13 +446,43 @@ BEGIN
 
     RETURN me_accepts_them AND them_accepts_me;
 END;
-$$ LANGUAGE plpgsql IMMUTABLE;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
+
+-- ====================================================================
+-- SAFE PUBLIC PROFILE VIEW (ALLOWLISTED DISCOVERY COLUMNS ONLY)
+-- ====================================================================
+
+CREATE OR REPLACE VIEW public.public_profiles AS
+SELECT
+    p.id,
+    p.display_name,
+    p.age,
+    p.avatar_url,
+    p.gender,
+    p.bio,
+    p.profession,
+    p.is_profession_verified,
+    p.verification_badge_title,
+    p.preferred_activities,
+    p.preferred_walking_distance,
+    p.walking_pace,
+    p.approx_city,
+    p.approx_area,
+    p.is_location_visible,
+    p.created_at
+FROM public.profiles p
+WHERE p.is_suspended = false
+  AND p.is_onboarded = true
+  AND p.is_age_verified = true
+  AND p.age >= 18;
+
+GRANT SELECT ON public.public_profiles TO authenticated;
 
 -- ====================================================================
 -- SECURE STORED PROCEDURES / RPC FUNCTIONS
 -- ====================================================================
 
--- 1. SEND LIKE / PASS WITH AUTOMATIC ATOMIC MUTUAL MATCH DETECTION
+-- 1. SEND LIKE WITH ATOMIC MUTUAL MATCH DETECTION & DYNAMIC SCORE
 CREATE OR REPLACE FUNCTION public.send_like(
     target_user_id UUID,
     action_type TEXT
@@ -374,10 +490,13 @@ CREATE OR REPLACE FUNCTION public.send_like(
 RETURNS JSON AS $$
 DECLARE
     curr_uid UUID := auth.uid();
+    my_p RECORD;
+    target_p RECORD;
     mutual_like_exists BOOLEAN := false;
     new_match_id UUID := NULL;
     partner_data JSON;
-    calculated_compat INTEGER := 75;
+    calculated_compat INTEGER := 80;
+    shared_interests_cnt INTEGER := 0;
     u1 UUID;
     u2 UUID;
 BEGIN
@@ -389,7 +508,24 @@ BEGIN
         RAISE EXCEPTION 'Cannot like yourself';
     END IF;
 
-    -- Verify no blocks in either direction
+    IF action_type NOT IN ('like', 'pass') THEN
+        RAISE EXCEPTION 'Invalid action type';
+    END IF;
+
+    SELECT * INTO my_p FROM public.profiles WHERE id = curr_uid;
+    IF my_p.is_suspended THEN
+        RAISE EXCEPTION 'Account is suspended';
+    END IF;
+
+    IF NOT my_p.is_age_verified OR my_p.age < 18 THEN
+        RAISE EXCEPTION 'Age assurance required (must be 18+)';
+    END IF;
+
+    SELECT * INTO target_p FROM public.profiles WHERE id = target_user_id;
+    IF NOT FOUND OR target_p.is_suspended THEN
+        RAISE EXCEPTION 'Target user is unavailable';
+    END IF;
+
     IF EXISTS (
         SELECT 1 FROM public.blocks
         WHERE (blocker_id = curr_uid AND blocked_id = target_user_id)
@@ -398,13 +534,11 @@ BEGIN
         RAISE EXCEPTION 'Action cannot be completed';
     END IF;
 
-    -- Record the like or pass
     INSERT INTO public.likes (sender_id, receiver_id, action)
     VALUES (curr_uid, target_user_id, action_type)
     ON CONFLICT (sender_id, receiver_id)
     DO UPDATE SET action = action_type, created_at = now();
 
-    -- If action is 'like', check if target already liked current user
     IF action_type = 'like' THEN
         SELECT EXISTS (
             SELECT 1 FROM public.likes
@@ -414,28 +548,30 @@ BEGIN
         ) INTO mutual_like_exists;
 
         IF mutual_like_exists THEN
-            -- Canonical ordering to avoid duplicate matches and race conditions
             u1 := LEAST(curr_uid, target_user_id);
             u2 := GREATEST(curr_uid, target_user_id);
 
-            -- Insert match
+            SELECT COUNT(*) INTO shared_interests_cnt
+            FROM public.user_interests ui1
+            JOIN public.user_interests ui2 ON ui1.interest_id = ui2.interest_id
+            WHERE ui1.user_id = curr_uid AND ui2.user_id = target_user_id;
+
+            calculated_compat := LEAST(100, GREATEST(50, 70 + (shared_interests_cnt * 6)));
+
             INSERT INTO public.matches (user1_id, user2_id, compatibility_score, is_active)
             VALUES (u1, u2, calculated_compat, true)
             ON CONFLICT (user1_id, user2_id)
             DO UPDATE SET is_active = true
             RETURNING id INTO new_match_id;
 
-            -- Get partner profile data
             SELECT json_build_object(
-                'id', p.id,
-                'display_name', p.display_name,
-                'avatar_url', p.avatar_url,
-                'profession', p.profession,
-                'is_profession_verified', p.is_profession_verified,
-                'approx_area', p.approx_area
-            ) INTO partner_data
-            FROM public.profiles p
-            WHERE p.id = target_user_id;
+                'id', target_p.id,
+                'display_name', target_p.display_name,
+                'avatar_url', target_p.avatar_url,
+                'profession', target_p.profession,
+                'is_profession_verified', target_p.is_profession_verified,
+                'approx_area', target_p.approx_area
+            ) INTO partner_data;
 
             RETURN json_build_object(
                 'matched', true,
@@ -451,7 +587,10 @@ BEGIN
         'partner', NULL
     );
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+REVOKE EXECUTE ON FUNCTION public.send_like(UUID, TEXT) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.send_like(UUID, TEXT) TO authenticated;
 
 -- 2. GET CANDIDATE MATCHES (CORE MATCHING ENGINE WITH CONFIGURABLE WEIGHTS)
 CREATE OR REPLACE FUNCTION public.get_candidate_matches(
@@ -479,9 +618,8 @@ RETURNS TABLE (
 DECLARE
     curr_uid UUID := auth.uid();
     my_p RECORD;
+    my_loc RECORD;
     search_radius INTEGER;
-    -- Configurable weights as per requirements:
-    -- Shared interests: 40%, Proximity: 30%, Availability: 20%, Walking preferences: 10%
     weight_interests DOUBLE PRECISION := 0.40;
     weight_proximity DOUBLE PRECISION := 0.30;
     weight_availability DOUBLE PRECISION := 0.20;
@@ -491,12 +629,24 @@ BEGIN
         RAISE EXCEPTION 'Not authenticated';
     END IF;
 
-    -- Fetch current user profile
     SELECT * INTO my_p FROM public.profiles WHERE public.profiles.id = curr_uid;
     IF NOT FOUND THEN
         RAISE EXCEPTION 'User profile not found';
     END IF;
 
+    IF my_p.is_suspended THEN
+        RAISE EXCEPTION 'Account is suspended';
+    END IF;
+
+    IF NOT my_p.is_age_verified OR my_p.age < 18 THEN
+        RAISE EXCEPTION 'Age assurance verification required (must be 18+)';
+    END IF;
+
+    IF NOT my_p.is_onboarded THEN
+        RAISE EXCEPTION 'Please complete profile setup before discovering candidates';
+    END IF;
+
+    SELECT * INTO my_loc FROM public.user_locations WHERE user_id = curr_uid;
     search_radius := COALESCE(radius_km_override, my_p.discovery_radius_km, 10);
 
     RETURN QUERY
@@ -523,9 +673,10 @@ BEGIN
             p.preferred_walking_distance AS c_distance_pref,
             p.walking_pace AS c_pace,
             p.approx_area AS c_area,
-            -- Calculate approximate distance (never exposing raw coordinates)
-            public.calculate_haversine_distance(my_p.latitude, my_p.longitude, p.latitude, p.longitude) AS dist_km,
-            -- Shared interests array
+            public.calculate_haversine_distance(
+                my_loc.latitude, my_loc.longitude,
+                cloc.latitude, cloc.longitude
+            ) AS dist_km,
             ARRAY(
                 SELECT i.name
                 FROM public.user_interests cui
@@ -533,14 +684,12 @@ BEGIN
                 WHERE cui.user_id = p.id
                   AND cui.interest_id IN (SELECT interest_id FROM my_interest_ids)
             ) AS shared_ints,
-            -- Shared interests count
             (
                 SELECT COUNT(*)
                 FROM public.user_interests cui
                 WHERE cui.user_id = p.id
                   AND cui.interest_id IN (SELECT interest_id FROM my_interest_ids)
             ) AS shared_count,
-            -- Shared availability count
             (
                 SELECT COUNT(*)
                 FROM public.availability cav
@@ -548,23 +697,23 @@ BEGIN
                   AND cav.is_active = true
                   AND cav.day_slot IN (SELECT day_slot FROM my_avail)
             ) AS shared_avail_count,
-            -- Walking preference match
             CASE WHEN p.preferred_walking_distance = my_p.preferred_walking_distance THEN 100 ELSE 50 END AS walking_match_pct
         FROM public.profiles p
+        LEFT JOIN public.user_locations cloc ON cloc.user_id = p.id
         WHERE p.id != curr_uid
           AND p.is_suspended = false
-          -- Exclude users already liked or passed
+          AND p.is_onboarded = true
+          AND p.is_age_verified = true
+          AND p.age >= 18
           AND NOT EXISTS (
               SELECT 1 FROM public.likes l
               WHERE l.sender_id = curr_uid AND l.receiver_id = p.id
           )
-          -- Exclude blocked users (both ways)
           AND NOT EXISTS (
               SELECT 1 FROM public.blocks b
               WHERE (b.blocker_id = curr_uid AND b.blocked_id = p.id)
                  OR (b.blocker_id = p.id AND b.blocked_id = curr_uid)
           )
-          -- Enforce mutual gender preference compatibility
           AND public.check_gender_compatibility(my_p.gender, my_p.gender_preference, p.gender, p.gender_preference) = true
     )
     SELECT
@@ -582,11 +731,6 @@ BEGIN
         c.dist_km AS approx_distance_km,
         c.c_area AS approx_area,
         c.shared_ints AS shared_interests,
-        -- Weighted composite score:
-        -- Shared interests: up to 5 shared = 100%
-        -- Proximity: closer = higher score within search_radius
-        -- Availability: up to 3 slots = 100%
-        -- Walking: distance pref match
         LEAST(100, GREATEST(40, ROUND((
             (LEAST(c.shared_count::DOUBLE PRECISION / 4.0, 1.0) * 100.0 * weight_interests) +
             (GREATEST(0.0, (1.0 - (c.dist_km / GREATEST(search_radius::DOUBLE PRECISION, 1.0)))) * 100.0 * weight_proximity) +
@@ -594,12 +738,15 @@ BEGIN
             (c.walking_match_pct * weight_walking)
         )::numeric)))::INTEGER AS compatibility_score
     FROM candidates c
-    WHERE c.dist_km <= (search_radius * 1.5) -- Allow nearby margin
+    WHERE c.dist_km <= (search_radius * 1.5)
     ORDER BY compatibility_score DESC, c.dist_km ASC
     LIMIT limit_count
     OFFSET offset_count;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+REVOKE EXECUTE ON FUNCTION public.get_candidate_matches(INTEGER, INTEGER, INTEGER) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_candidate_matches(INTEGER, INTEGER, INTEGER) TO authenticated;
 
 -- 3. GET ACTIVE MATCHES FOR USER
 CREATE OR REPLACE FUNCTION public.get_user_matches()
@@ -619,9 +766,15 @@ RETURNS TABLE (
 ) AS $$
 DECLARE
     curr_uid UUID := auth.uid();
+    my_suspended BOOLEAN;
 BEGIN
     IF curr_uid IS NULL THEN
         RAISE EXCEPTION 'Not authenticated';
+    END IF;
+
+    SELECT is_suspended INTO my_suspended FROM public.profiles WHERE id = curr_uid;
+    IF COALESCE(my_suspended, false) THEN
+        RAISE EXCEPTION 'Account is suspended';
     END IF;
 
     RETURN QUERY
@@ -648,7 +801,7 @@ BEGIN
     JOIN public.profiles p ON p.id = (CASE WHEN m.user1_id = curr_uid THEN m.user2_id ELSE m.user1_id END)
     WHERE (m.user1_id = curr_uid OR m.user2_id = curr_uid)
       AND m.is_active = true
-      -- Ensure not blocked
+      AND p.is_suspended = false
       AND NOT EXISTS (
           SELECT 1 FROM public.blocks b
           WHERE (b.blocker_id = curr_uid AND b.blocked_id = p.id)
@@ -656,9 +809,12 @@ BEGIN
       )
     ORDER BY m.last_message_at DESC;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
--- 4. UPDATE APPROXIMATE USER LOCATION (SECURE)
+REVOKE EXECUTE ON FUNCTION public.get_user_matches() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_user_matches() TO authenticated;
+
+-- 4. UPDATE APPROXIMATE USER LOCATION (RATE LIMITED & STORED IN USER_LOCATIONS)
 CREATE OR REPLACE FUNCTION public.update_approx_location(
     lat DOUBLE PRECISION,
     lon DOUBLE PRECISION,
@@ -667,21 +823,93 @@ CREATE OR REPLACE FUNCTION public.update_approx_location(
 RETURNS VOID AS $$
 DECLARE
     curr_uid UUID := auth.uid();
+    last_up TIMESTAMPTZ;
 BEGIN
     IF curr_uid IS NULL THEN
         RAISE EXCEPTION 'Not authenticated';
     END IF;
 
+    IF lat IS NULL OR lon IS NULL OR lat < -90.0 OR lat > 90.0 OR lon < -180.0 OR lon > 180.0 THEN
+        RAISE EXCEPTION 'Invalid coordinates provided';
+    END IF;
+
+    SELECT updated_at INTO last_up FROM public.user_locations WHERE user_id = curr_uid;
+    IF last_up IS NOT NULL AND (now() - last_up) < INTERVAL '30 seconds' THEN
+        RETURN;
+    END IF;
+
+    INSERT INTO public.user_locations (user_id, latitude, longitude, approx_area, updated_at)
+    VALUES (curr_uid, lat, lon, COALESCE(area_name, 'Hyderabad'), now())
+    ON CONFLICT (user_id)
+    DO UPDATE SET
+        latitude = EXCLUDED.latitude,
+        longitude = EXCLUDED.longitude,
+        approx_area = EXCLUDED.approx_area,
+        updated_at = now();
+
     UPDATE public.profiles
-    SET latitude = lat,
-        longitude = lon,
-        approx_area = COALESCE(area_name, approx_area, 'Hyderabad Area'),
+    SET approx_area = COALESCE(area_name, approx_area, 'Hyderabad'),
         updated_at = now()
     WHERE id = curr_uid;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
--- 5. BLOCK USER
+REVOKE EXECUTE ON FUNCTION public.update_approx_location(DOUBLE PRECISION, DOUBLE PRECISION, TEXT) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.update_approx_location(DOUBLE PRECISION, DOUBLE PRECISION, TEXT) TO authenticated;
+
+-- 5. SECURE READ RECEIPT RPC
+CREATE OR REPLACE FUNCTION public.mark_messages_read(p_match_id UUID)
+RETURNS VOID AS $$
+DECLARE
+    curr_uid UUID := auth.uid();
+BEGIN
+    IF curr_uid IS NULL THEN
+        RAISE EXCEPTION 'Not authenticated';
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM public.matches m
+        WHERE m.id = p_match_id
+          AND (m.user1_id = curr_uid OR m.user2_id = curr_uid)
+          AND m.is_active = true
+          AND NOT EXISTS (
+              SELECT 1 FROM public.blocks b
+              WHERE (b.blocker_id = curr_uid AND (b.blocked_id = m.user1_id OR b.blocked_id = m.user2_id))
+                 OR ((b.blocker_id = m.user1_id OR b.blocker_id = m.user2_id) AND b.blocked_id = curr_uid)
+          )
+    ) THEN
+        RAISE EXCEPTION 'Not authorized or conversation is inactive';
+    END IF;
+
+    UPDATE public.messages
+    SET is_read = true
+    WHERE match_id = p_match_id
+      AND sender_id != curr_uid
+      AND is_read = false;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+REVOKE EXECUTE ON FUNCTION public.mark_messages_read(UUID) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.mark_messages_read(UUID) TO authenticated;
+
+-- 6. SECURE ACCOUNT DELETION RPC
+CREATE OR REPLACE FUNCTION public.delete_own_account()
+RETURNS VOID AS $$
+DECLARE
+    curr_uid UUID := auth.uid();
+BEGIN
+    IF curr_uid IS NULL THEN
+        RAISE EXCEPTION 'Not authenticated';
+    END IF;
+
+    DELETE FROM auth.users WHERE id = curr_uid;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, auth, pg_temp;
+
+REVOKE EXECUTE ON FUNCTION public.delete_own_account() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.delete_own_account() TO authenticated;
+
+-- 7. BLOCK USER
 CREATE OR REPLACE FUNCTION public.block_user_rpc(
     target_user_id UUID,
     block_reason TEXT DEFAULT 'No reason provided'
@@ -694,18 +922,24 @@ BEGIN
         RAISE EXCEPTION 'Not authenticated';
     END IF;
 
+    IF curr_uid = target_user_id THEN
+        RAISE EXCEPTION 'Cannot block yourself';
+    END IF;
+
     INSERT INTO public.blocks (blocker_id, blocked_id, reason)
     VALUES (curr_uid, target_user_id, block_reason)
     ON CONFLICT (blocker_id, blocked_id) DO NOTHING;
 
-    -- Deactivate any match between these two users
     UPDATE public.matches
     SET is_active = false
     WHERE (user1_id = LEAST(curr_uid, target_user_id) AND user2_id = GREATEST(curr_uid, target_user_id));
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
--- 6. REPORT USER
+REVOKE EXECUTE ON FUNCTION public.block_user_rpc(UUID, TEXT) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.block_user_rpc(UUID, TEXT) TO authenticated;
+
+-- 8. REPORT USER
 CREATE OR REPLACE FUNCTION public.report_user_rpc(
     target_user_id UUID,
     report_category TEXT,
@@ -720,15 +954,22 @@ BEGIN
         RAISE EXCEPTION 'Not authenticated';
     END IF;
 
+    IF curr_uid = target_user_id THEN
+        RAISE EXCEPTION 'Cannot report yourself';
+    END IF;
+
     INSERT INTO public.reports (reporter_id, reported_id, category, description)
     VALUES (curr_uid, target_user_id, report_category, report_desc)
     RETURNING id INTO new_report_id;
 
     RETURN new_report_id;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
--- 7. SUBMIT VERIFICATION REQUEST
+REVOKE EXECUTE ON FUNCTION public.report_user_rpc(UUID, TEXT, TEXT) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.report_user_rpc(UUID, TEXT, TEXT) TO authenticated;
+
+-- 9. SUBMIT VERIFICATION REQUEST
 CREATE OR REPLACE FUNCTION public.submit_verification_request(
     prof TEXT,
     org TEXT,
@@ -750,9 +991,12 @@ BEGIN
 
     RETURN req_id;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
--- 8. ADMIN ACTIONS (SECURE WITH ROLE CHECK)
+REVOKE EXECUTE ON FUNCTION public.submit_verification_request(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.submit_verification_request(TEXT, TEXT, TEXT, TEXT) TO authenticated;
+
+-- 10. ADMIN ACTIONS (RESTRICTED VIA is_admin() & search_path)
 CREATE OR REPLACE FUNCTION public.admin_review_verification(
     request_id UUID,
     new_status TEXT,
@@ -762,12 +1006,10 @@ CREATE OR REPLACE FUNCTION public.admin_review_verification(
 RETURNS VOID AS $$
 DECLARE
     curr_uid UUID := auth.uid();
-    is_admin BOOLEAN := false;
     target_uid UUID;
     target_prof TEXT;
 BEGIN
-    SELECT (role = 'admin') INTO is_admin FROM public.profiles WHERE id = curr_uid;
-    IF NOT COALESCE(is_admin, false) THEN
+    IF NOT public.is_admin() THEN
         RAISE EXCEPTION 'Unauthorized: Admin role required';
     END IF;
 
@@ -798,7 +1040,10 @@ BEGIN
         WHERE id = target_uid;
     END IF;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+REVOKE EXECUTE ON FUNCTION public.admin_review_verification(UUID, TEXT, TEXT, TEXT) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.admin_review_verification(UUID, TEXT, TEXT, TEXT) TO authenticated;
 
 CREATE OR REPLACE FUNCTION public.admin_review_report(
     report_id UUID,
@@ -809,11 +1054,9 @@ CREATE OR REPLACE FUNCTION public.admin_review_report(
 RETURNS VOID AS $$
 DECLARE
     curr_uid UUID := auth.uid();
-    is_admin BOOLEAN := false;
     reported_user UUID;
 BEGIN
-    SELECT (role = 'admin') INTO is_admin FROM public.profiles WHERE id = curr_uid;
-    IF NOT COALESCE(is_admin, false) THEN
+    IF NOT public.is_admin() THEN
         RAISE EXCEPTION 'Unauthorized: Admin role required';
     END IF;
 
@@ -838,13 +1081,17 @@ BEGIN
         WHERE id = reported_user;
     END IF;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+REVOKE EXECUTE ON FUNCTION public.admin_review_report(UUID, TEXT, TEXT, BOOLEAN) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.admin_review_report(UUID, TEXT, TEXT, BOOLEAN) TO authenticated;
 
 -- ====================================================================
 -- ROW LEVEL SECURITY (RLS) POLICIES
 -- ====================================================================
 
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_locations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.interests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_interests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.availability ENABLE ROW LEVEL SECURITY;
@@ -857,23 +1104,34 @@ ALTER TABLE public.verification_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
 
 -- PROFILES RLS
--- Anyone authenticated can read onboarded non-suspended profiles (RPC handles candidate discovery)
-CREATE POLICY "Public profiles are viewable by authenticated users"
+-- Users can only view their own private profile record; public discovery uses public_profiles view & RPC
+CREATE POLICY "Users can view their own profile"
 ON public.profiles FOR SELECT
 TO authenticated
-USING (true);
+USING (auth.uid() = id OR public.is_admin());
 
 CREATE POLICY "Users can update their own profile"
 ON public.profiles FOR UPDATE
 TO authenticated
-USING (auth.uid() = id)
-WITH CHECK (
-    auth.uid() = id
-    -- Prevent users from updating restricted fields like role or is_profession_verified
-    AND role = (SELECT role FROM public.profiles WHERE id = auth.uid())
-    AND is_profession_verified = (SELECT is_profession_verified FROM public.profiles WHERE id = auth.uid())
-    AND is_suspended = (SELECT is_suspended FROM public.profiles WHERE id = auth.uid())
-);
+USING (auth.uid() = id AND is_suspended = false)
+WITH CHECK (auth.uid() = id AND is_suspended = false);
+
+-- USER LOCATIONS RLS
+CREATE POLICY "Users can view only their own location"
+ON public.user_locations FOR SELECT
+TO authenticated
+USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can update only their own location"
+ON public.user_locations FOR UPDATE
+TO authenticated
+USING (auth.uid() = user_id)
+WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert their own location"
+ON public.user_locations FOR INSERT
+TO authenticated
+WITH CHECK (auth.uid() = user_id);
 
 -- INTERESTS RLS
 CREATE POLICY "Interests catalog is readable by all"
@@ -923,6 +1181,7 @@ TO authenticated
 USING ((auth.uid() = user1_id OR auth.uid() = user2_id) AND is_active = true);
 
 -- MESSAGES RLS
+-- Users can read messages only if part of active match and not blocked
 CREATE POLICY "Matched users can view conversation messages"
 ON public.messages FOR SELECT
 TO authenticated
@@ -932,7 +1191,6 @@ USING (
         WHERE m.id = match_id
           AND (m.user1_id = auth.uid() OR m.user2_id = auth.uid())
           AND m.is_active = true
-          -- And neither user is blocked
           AND NOT EXISTS (
               SELECT 1 FROM public.blocks b
               WHERE (b.blocker_id = auth.uid() AND (b.blocked_id = m.user1_id OR b.blocked_id = m.user2_id))
@@ -941,11 +1199,13 @@ USING (
     )
 );
 
+-- Users can send messages only if not suspended and in an active, unblocked match
 CREATE POLICY "Matched users can send messages"
 ON public.messages FOR INSERT
 TO authenticated
 WITH CHECK (
     auth.uid() = sender_id
+    AND NOT (SELECT is_suspended FROM public.profiles WHERE id = auth.uid())
     AND EXISTS (
         SELECT 1 FROM public.matches m
         WHERE m.id = match_id
@@ -959,16 +1219,8 @@ WITH CHECK (
     )
 );
 
-CREATE POLICY "Users can mark messages as read"
-ON public.messages FOR UPDATE
-TO authenticated
-USING (
-    EXISTS (
-        SELECT 1 FROM public.matches m
-        WHERE m.id = match_id
-          AND (m.user1_id = auth.uid() OR m.user2_id = auth.uid())
-    )
-);
+-- NOTE: Direct UPDATE on messages is REVOKED to prevent message tampering.
+-- Read receipts must be marked exclusively via the secure RPC public.mark_messages_read(p_match_id)
 
 -- BLOCKS RLS
 CREATE POLICY "Users can view and manage their blocks"
@@ -986,18 +1238,18 @@ WITH CHECK (auth.uid() = reporter_id);
 CREATE POLICY "Users can view their submitted reports"
 ON public.reports FOR SELECT
 TO authenticated
-USING (auth.uid() = reporter_id OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin'));
+USING (auth.uid() = reporter_id OR public.is_admin());
 
 CREATE POLICY "Admins can update reports"
 ON public.reports FOR UPDATE
 TO authenticated
-USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin'));
+USING (public.is_admin());
 
 -- VERIFICATION REQUESTS RLS
 CREATE POLICY "Users can view their own verification requests"
 ON public.verification_requests FOR SELECT
 TO authenticated
-USING (auth.uid() = user_id OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin'));
+USING (auth.uid() = user_id OR public.is_admin());
 
 CREATE POLICY "Users can create verification requests"
 ON public.verification_requests FOR INSERT
@@ -1007,7 +1259,7 @@ WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "Admins can update verification requests"
 ON public.verification_requests FOR UPDATE
 TO authenticated
-USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin'));
+USING (public.is_admin());
 
 -- USER ROLES RLS
 CREATE POLICY "Users can view their own role"
@@ -1018,6 +1270,5 @@ USING (auth.uid() = user_id);
 -- ====================================================================
 -- REALTIME REPLICATION CONFIGURATION
 -- ====================================================================
--- Enable publication for real-time messaging and match notification
 ALTER PUBLICATION supabase_realtime ADD TABLE public.messages;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.matches;

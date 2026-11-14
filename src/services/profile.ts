@@ -1,12 +1,18 @@
 // ====================================================================
-// WALK WITH BUDDY - PROFILE SERVICE
+// WALK WITH BUDDY - PROFILE SERVICE (SECURITY HARDENED)
 // ====================================================================
 
-import { supabase } from './supabase';
+import { supabase, isSupabaseConfigured } from './supabase';
 import { Profile, Interest, DaySlot } from '../types';
+import { sanitizeProfileUpdates } from '../utils/securityLogic';
 
 export const profileService = {
+  /**
+   * Fetches the authenticated user's own profile (Allowed by RLS)
+   */
   async fetchProfile(userId: string): Promise<Profile | null> {
+    if (!isSupabaseConfigured()) return null;
+
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
@@ -20,10 +26,37 @@ export const profileService = {
     return data as Profile;
   },
 
+  /**
+   * Fetches another user's safe public profile from public_profiles view
+   * (Guarantees email, coordinates, DOB, and internal roles are not retrieved)
+   */
+  async fetchPublicProfile(userId: string): Promise<Partial<Profile> | null> {
+    if (!isSupabaseConfigured()) return null;
+
+    const { data, error } = await supabase
+      .from('public_profiles')
+      .select('*')
+      .eq('id', userId)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') return null;
+      throw error;
+    }
+    return data as Partial<Profile>;
+  },
+
   async updateProfile(userId: string, updates: Partial<Profile>): Promise<Profile> {
+    if (!isSupabaseConfigured()) {
+      return updates as Profile;
+    }
+
+    // Strip protected fields on client side to prevent trigger rejections
+    const safeUpdates = sanitizeProfileUpdates(updates);
+
     const { data, error } = await supabase
       .from('profiles')
-      .update(updates)
+      .update(safeUpdates)
       .eq('id', userId)
       .select()
       .single();
@@ -33,6 +66,8 @@ export const profileService = {
   },
 
   async fetchInterestsCatalog(): Promise<Interest[]> {
+    if (!isSupabaseConfigured()) return [];
+
     const { data, error } = await supabase
       .from('interests')
       .select('*')
@@ -43,6 +78,8 @@ export const profileService = {
   },
 
   async fetchUserInterests(userId: string): Promise<string[]> {
+    if (!isSupabaseConfigured()) return [];
+
     const { data, error } = await supabase
       .from('user_interests')
       .select('interest_id')
@@ -53,7 +90,8 @@ export const profileService = {
   },
 
   async updateUserInterests(userId: string, interestIds: string[]): Promise<void> {
-    // Delete existing interests
+    if (!isSupabaseConfigured()) return;
+
     const { error: delError } = await supabase
       .from('user_interests')
       .delete()
@@ -73,6 +111,8 @@ export const profileService = {
   },
 
   async fetchUserAvailability(userId: string): Promise<DaySlot[]> {
+    if (!isSupabaseConfigured()) return [];
+
     const { data, error } = await supabase
       .from('availability')
       .select('day_slot')
@@ -84,6 +124,8 @@ export const profileService = {
   },
 
   async updateUserAvailability(userId: string, slots: DaySlot[]): Promise<void> {
+    if (!isSupabaseConfigured()) return;
+
     const { error: delError } = await supabase
       .from('availability')
       .delete()
@@ -104,16 +146,16 @@ export const profileService = {
   },
 
   async uploadAvatar(userId: string, base64OrUri: string): Promise<string> {
-    // In demo / starter mode, or when Supabase storage bucket 'avatars' is configured
+    if (!isSupabaseConfigured()) return base64OrUri;
+
     try {
       const fileName = `${userId}-${Date.now()}.jpg`;
       const filePath = `avatars/${fileName}`;
 
-      // Convert uri to blob if necessary
       const response = await fetch(base64OrUri);
       const blob = await response.blob();
 
-      const { data, error } = await supabase.storage
+      const { error } = await supabase.storage
         .from('avatars')
         .upload(filePath, blob, {
           contentType: 'image/jpeg',
@@ -129,7 +171,6 @@ export const profileService = {
       await this.updateProfile(userId, { avatar_url: urlData.publicUrl });
       return urlData.publicUrl;
     } catch {
-      // Gracefully set avatar_url to the URI directly if storage bucket is not yet created
       await this.updateProfile(userId, { avatar_url: base64OrUri });
       return base64OrUri;
     }
