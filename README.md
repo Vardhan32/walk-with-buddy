@@ -159,6 +159,55 @@ eas build --platform android --profile production
 4. **Instant Block & Report**: Blocking a user immediately deactivates matches and prevents any future communication or discovery.
 5. **Emergency Contacts**: One-tap access to Hyderabad Police (100) and She Teams (9490616555).
 
+## 🌟 Conversational Discovery & Smart Matching (`feature/conversational-discovery`)
+
+The platform features an intelligent, conversational discovery experience:
+
+### 1. Conversational Discovery Assistant (Home Screen)
+- **Interactive Discovery Modes**:
+  1. **Surprise Me**: Diversity-first serendipitous matching with high compatibility.
+  2. **Similar Interests**: Finds buddies with overlapping hobbies, tech stacks, and topics.
+  3. **Someone From a Profession**: Filter by Doctor, Software Engineer, Lawyer, Founder, etc. (with verified badges).
+  4. **Someone Different From Me**: Broaden your horizon with buddies from different walks of life.
+  5. **Group Walks**: Small community walks (3-6 buddies) around Hyderabad parks and boardwalks.
+- **6-Step Conversational Questionnaire (`app/discovery/guide.tsx`)**:
+  - Step 1: Location (GPS vs manual locality like Madhapur, Jubilee Hills, Gachibowli) & Radius (1-15 km).
+  - Step 2: What's the plan? (Casual walk, coffee chat, city exploration, fitness jog).
+  - Step 3: When? (Right now, next few hours, today, tomorrow, scheduled).
+  - Step 4: Who? (Age range, mutual gender preference, 1-on-1 vs group).
+  - Step 5: What to discover? (Profession, niche topics, optional notes).
+  - Step 6: Review summary with instant edit triggers and explicit "Start Matching" confirmation.
+
+### 2. Smart Matching Engine (5-Factor Weighted Scoring)
+- **Configurable Weights**:
+  - Shared Interests & Activities: 30%
+  - Distance Proximity: 25%
+  - Availability Overlap: 20%
+  - Discovery & Profession: 15%
+  - Profile Completeness: 10%
+- **"Why This Person Matches" Badges**: Real-time conversational explanations displayed on cards (e.g. *"Super close by (~1.8 km in Madhapur)"*, *"Shared passion for Design & Technology"*).
+- **Mandatory Safety Filters**: All candidates must pass age assurance (18+), have active non-suspended status, and satisfy mutual gender and age criteria before scoring.
+
+### 3. In-Chat "Plan Our Walk" & Google Maps
+- Interactive walk proposal cards directly inside 1-on-1 chats.
+- Pick from vetted Hyderabad public spots (or custom).
+- Mutual agreement required: recipient can **Accept**, **Suggest Change**, or **Decline**.
+- Once agreed, displays a one-tap **"Open in Google Maps"** navigation button without exposing private GPS coordinates.
+
+### 4. Interactive Conversation Cards & "Teach Me Something"
+- **7 Question Categories**: Icebreakers, Funny, Career & Profession, Life Experiences, Hobbies, Deep Conversations, Hyderabad Discoveries.
+- Shuffle / Next card actions with user consent before sending into chat.
+- **Teach Me Something**: Share profession concepts, interesting facts, or Hyderabad city lore.
+
+### 5. City Explorer (Hyderabad Vetted Spots)
+- Curated list of public walking places: *Durgam Cheruvu Lakefront Boardwalk, KBR National Park, Necklace Road & Tank Bund, Pala Pitta Bio-Park, Sanjeevaiah Park, Gandipet Landscape Park, and Jubilee Hills Cafe Strip*.
+- Complete with real coordinates, opening vibes, best walking hours, and safety ratings.
+
+### 6. Small Group Walks (3 - 6 Buddies)
+- Pilot architecture for small group walks with capacity caps, organizer verification, join/leave actions, and strict safety rules.
+
+---
+
 ## 🛡️ Security Audit & Reliability Repairs (`security-and-reliability-fixes`)
 
 A rigorous codebase audit and security repair was conducted across the database schema, RPC functions, and frontend services:

@@ -374,6 +374,164 @@ assertEqual(tableAfter[0].content, 'Original Message Content', 'Message content 
 assertEqual(tableAfter[0].sender_id, 'user-b', 'Message sender_id remains completely unchanged');
 assertEqual(tableAfter[1].is_read, false, 'User cannot mark their own outgoing message as read for the recipient');
 
+// --------------------------------------------------------------------
+// TEST GROUP 12: Conversational 5-Factor Scoring Distribution
+// --------------------------------------------------------------------
+console.log('\n--- TEST GROUP 12: Conversational 5-Factor Scoring ---');
+
+const convWeights = APP_CONFIG.conversationalWeights;
+const sumConv =
+  convWeights.sharedInterestsAndActivities +
+  convWeights.proximity +
+  convWeights.availability +
+  convWeights.discoveryAndProfession +
+  convWeights.profileCompleteness;
+
+assertEqual(Math.round(sumConv * 100) / 100, 1.0, 'Conversational 5-factor weights sum exactly to 1.0 (100%)');
+assertEqual(convWeights.sharedInterestsAndActivities, 0.30, 'Interests & activity weight is 30%');
+assertEqual(convWeights.proximity, 0.25, 'Distance proximity weight is 25%');
+assertEqual(convWeights.availability, 0.20, 'Availability overlap weight is 20%');
+assertEqual(convWeights.discoveryAndProfession, 0.15, 'Discovery & profession weight is 15%');
+assertEqual(convWeights.profileCompleteness, 0.10, 'Profile completeness weight is 10%');
+
+const convUser: Partial<Profile> = {
+  id: 'u-user',
+  profession: 'Software Engineer',
+  discovery_radius_km: 5,
+};
+
+const convCandidateDoctor: Partial<Profile> = {
+  id: 'u-candidate-doc',
+  profession: 'Doctor',
+  approx_area: 'Madhapur',
+};
+
+const score5Factor = matchingLogic.calculate5FactorCompatibility(
+  convUser,
+  convCandidateDoctor,
+  2, // 2 shared interests
+  1.5, // 1.5 km distance
+  2, // 2 shared avail slots
+  { mode: 'similar_interests', sharedActivitiesCount: 1 }
+);
+assert(score5Factor >= 80 && score5Factor <= 100, `5-factor score (${score5Factor}%) is in expected high-compatibility band`);
+
+// --------------------------------------------------------------------
+// TEST GROUP 13: Surprise Me & Novelty Discovery Calculations
+// --------------------------------------------------------------------
+console.log('\n--- TEST GROUP 13: Surprise Me Discovery Logic ---');
+
+// In surprise_me mode, a buddy with a different profession receives novelty discovery points
+const surpriseScore = matchingLogic.calculate5FactorCompatibility(
+  convUser,
+  convCandidateDoctor, // Different profession: Doctor vs Software Engineer
+  1, // 1 shared interest
+  2.0, // 2.0 km
+  1,
+  { mode: 'surprise_me' }
+);
+
+assert(surpriseScore >= 70, `Surprise Me score (${surpriseScore}%) maintains solid baseline for diverse cross-discipline buddy`);
+
+// In different_from_me mode
+const differentScore = matchingLogic.calculate5FactorCompatibility(
+  convUser,
+  convCandidateDoctor,
+  0,
+  2.0,
+  1,
+  { mode: 'different_from_me' }
+);
+assert(differentScore >= 65, `Different From Me score (${differentScore}%) rewards different career journeys`);
+
+// --------------------------------------------------------------------
+// TEST GROUP 14: Match Reason Generation
+// --------------------------------------------------------------------
+console.log('\n--- TEST GROUP 14: Conversational Match Reasons ---');
+
+const reasonsSimilar = matchingLogic.generateMatchReasons(
+  convUser,
+  convCandidateDoctor,
+  ['Technology', 'Books'],
+  1.8,
+  'similar_interests'
+);
+assert(reasonsSimilar.length >= 2, 'Generates at least 2 conversational match reasons');
+assert(
+  reasonsSimilar.some((r) => r.includes('Super close by') || r.includes('Madhapur')),
+  'Proximity reason includes localized approximate area'
+);
+assert(
+  reasonsSimilar.some((r) => r.includes('Technology')),
+  'Shared interest reason highlights shared topics'
+);
+
+const reasonsSurprise = matchingLogic.generateMatchReasons(
+  convUser,
+  convCandidateDoctor,
+  ['Nature'],
+  2.2,
+  'surprise_me'
+);
+assert(
+  reasonsSurprise.some((r) => r.includes('Doctor')),
+  'Surprise Me reason highlights diverse profession perspective'
+);
+
+// --------------------------------------------------------------------
+// TEST GROUP 15: Meeting Proposal State Transitions
+// --------------------------------------------------------------------
+console.log('\n--- TEST GROUP 15: Meeting Proposal Transitions ---');
+
+interface MeetingPlanState {
+  id: string;
+  match_id: string;
+  status: 'proposed' | 'accepted' | 'declined' | 'cancelled';
+}
+
+function transitionMeetingPlan(
+  plan: MeetingPlanState,
+  action: 'accept' | 'decline' | 'cancel'
+): MeetingPlanState {
+  if (plan.status !== 'proposed') {
+    throw new Error('Cannot transition a non-pending meeting plan');
+  }
+  const nextStatus = action === 'accept' ? 'accepted' : action === 'decline' ? 'declined' : 'cancelled';
+  return { ...plan, status: nextStatus };
+}
+
+const initialProposal: MeetingPlanState = {
+  id: 'plan-01',
+  match_id: 'match-01',
+  status: 'proposed',
+};
+
+const acceptedProposal = transitionMeetingPlan(initialProposal, 'accept');
+assertEqual(acceptedProposal.status, 'accepted', 'Proposal moves from proposed to accepted on consent');
+
+const declinedProposal = transitionMeetingPlan(initialProposal, 'decline');
+assertEqual(declinedProposal.status, 'declined', 'Proposal moves from proposed to declined on rejection');
+
+// --------------------------------------------------------------------
+// TEST GROUP 16: City Explorer Vetted Hyderabad Trails
+// --------------------------------------------------------------------
+console.log('\n--- TEST GROUP 16: City Explorer Places Integrity ---');
+
+import { HYDERABAD_WALKING_PLACES } from '../src/constants/cityExplorer';
+
+assert(HYDERABAD_WALKING_PLACES.length >= 5, 'At least 5 curated Hyderabad walking locations are available');
+
+for (const place of HYDERABAD_WALKING_PLACES) {
+  assert(place.name.length > 0, `Place has valid name: ${place.name}`);
+  assert(place.area.length > 0, `Place has valid area: ${place.area}`);
+  assert(
+    place.latitude >= 17.0 && place.latitude <= 18.0 && place.longitude >= 78.0 && place.longitude <= 79.0,
+    `Coordinates for ${place.name} (${place.latitude}, ${place.longitude}) are strictly within Greater Hyderabad`
+  );
+  assert(place.highlights.length > 0, `Place ${place.name} has descriptive walking highlights`);
+}
+
+
 console.log('\n========================================================');
 console.log(`TEST RESULTS: Total: ${totalTests} | Passed: ${passedTests} | Failed: ${failedTests}`);
 console.log('========================================================\n');
