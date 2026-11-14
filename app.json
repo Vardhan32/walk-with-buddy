@@ -1,0 +1,47 @@
+{
+  "expo": {
+    "name": "Walk With Buddy",
+    "slug": "walk-with-buddy",
+    "scheme": "walkwithbuddy",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0F172A"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.walkwithbuddy.app",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Walk With Buddy uses your approximate location to discover buddies nearby in Hyderabad for walking and networking."
+      }
+    },
+    "android": {
+      "package": "com.walkwithbuddy.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#0F172A",
+        "foregroundImage": "./assets/android-icon-foreground.png"
+      },
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Walk With Buddy uses your location to show approximate distance to other buddies."
+        }
+      ]
+    ]
+  }
+}
