@@ -78,8 +78,38 @@ export const ProfileCard: React.FC<ProfileCardProps> = ({ buddy, onPress }) => {
             <Text style={[styles.professionText, { color: colors.textSecondary }]}>
               {buddy.profession}
             </Text>
+            {buddy.verification_badge_title && buddy.is_profession_verified ? (
+              <Text style={[styles.verifiedTitleText, { color: colors.primary }]}>
+                • {buddy.verification_badge_title}
+              </Text>
+            ) : null}
           </View>
         ) : null}
+
+        {/* Why this person matches */}
+        {buddy.match_reasons && buddy.match_reasons.length > 0 && (
+          <View style={styles.reasonsContainer}>
+            <View style={styles.reasonsHeaderRow}>
+              <Ionicons name="sparkles" size={13} color="#F59E0B" />
+              <Text style={[styles.reasonsHeaderTitle, { color: colors.text }]}>
+                Why this person matches:
+              </Text>
+            </View>
+            <View style={styles.reasonsList}>
+              {buddy.match_reasons.map((reason, idx) => (
+                <View
+                  key={idx}
+                  style={[styles.reasonBadge, { backgroundColor: colors.surface, borderColor: colors.border }]}
+                >
+                  <Ionicons name="checkmark-circle" size={12} color={colors.primary} style={{ marginRight: 5 }} />
+                  <Text style={[styles.reasonText, { color: colors.textSecondary }]}>
+                    {reason}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
 
         {/* Bio Snippet */}
         {buddy.bio ? (
@@ -228,6 +258,43 @@ const styles = StyleSheet.create({
   professionText: {
     ...Typography.bodySmall,
     fontWeight: '500',
+  },
+  verifiedTitleText: {
+    ...Typography.caption,
+    fontWeight: '700',
+  },
+  reasonsContainer: {
+    marginVertical: Spacing.sm,
+    padding: Spacing.sm,
+    borderRadius: Radius.md,
+  },
+  reasonsHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 6,
+  },
+  reasonsHeaderTitle: {
+    ...Typography.caption,
+    fontWeight: '700',
+    fontSize: 11,
+    textTransform: 'uppercase',
+  },
+  reasonsList: {
+    gap: 4,
+  },
+  reasonBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+  },
+  reasonText: {
+    ...Typography.caption,
+    fontWeight: '600',
+    fontSize: 12,
   },
   bio: {
     ...Typography.bodySmall,

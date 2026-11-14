@@ -6,41 +6,47 @@ import React from 'react';
 import { Stack } from 'expo-router';
 import { ThemeProvider } from '../src/context/ThemeContext';
 import { AuthProvider } from '../src/context/AuthContext';
+import { DiscoveryProvider } from '../src/context/DiscoveryContext';
 
 export default function RootLayout() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            animation: 'slide_from_right',
-          }}
-        >
-          <Stack.Screen name="index" />
-          <Stack.Screen name="welcome" />
-          <Stack.Screen name="onboarding/index" />
-          <Stack.Screen name="onboarding/profile-setup" />
-          <Stack.Screen name="onboarding/interests" />
-          <Stack.Screen name="onboarding/location-permission" />
-          <Stack.Screen name="auth/login" />
-          <Stack.Screen name="auth/register" />
-          <Stack.Screen name="auth/forgot-password" />
-          <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="profile/[id]" />
-          <Stack.Screen name="profile/edit" />
-          <Stack.Screen name="match/celebration" options={{ presentation: 'modal' }} />
-          <Stack.Screen name="chat/[matchId]" />
-          <Stack.Screen name="settings/privacy" />
-          <Stack.Screen name="settings/delete-account" />
-          <Stack.Screen name="safety/guidelines" />
-          <Stack.Screen name="safety/block-list" />
-          <Stack.Screen name="safety/report/[userId]" options={{ presentation: 'modal' }} />
-          <Stack.Screen name="verification/request" />
-          <Stack.Screen name="admin/index" />
-          <Stack.Screen name="admin/reports" />
-          <Stack.Screen name="admin/verifications" />
-        </Stack>
+        <DiscoveryProvider>
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              animation: 'slide_from_right',
+            }}
+          >
+            <Stack.Screen name="index" />
+            <Stack.Screen name="welcome" />
+            <Stack.Screen name="onboarding/index" />
+            <Stack.Screen name="onboarding/profile-setup" />
+            <Stack.Screen name="onboarding/interests" />
+            <Stack.Screen name="onboarding/location-permission" />
+            <Stack.Screen name="auth/login" />
+            <Stack.Screen name="auth/register" />
+            <Stack.Screen name="auth/forgot-password" />
+            <Stack.Screen name="(tabs)" />
+            <Stack.Screen name="discovery/guide" options={{ animation: 'slide_from_bottom' }} />
+            <Stack.Screen name="explore/index" />
+            <Stack.Screen name="groups/index" />
+            <Stack.Screen name="profile/[id]" />
+            <Stack.Screen name="profile/edit" />
+            <Stack.Screen name="match/celebration" options={{ presentation: 'modal' }} />
+            <Stack.Screen name="chat/[matchId]" />
+            <Stack.Screen name="settings/privacy" />
+            <Stack.Screen name="settings/delete-account" />
+            <Stack.Screen name="safety/guidelines" />
+            <Stack.Screen name="safety/block-list" />
+            <Stack.Screen name="safety/report/[userId]" options={{ presentation: 'modal' }} />
+            <Stack.Screen name="verification/request" />
+            <Stack.Screen name="admin/index" />
+            <Stack.Screen name="admin/reports" />
+            <Stack.Screen name="admin/verifications" />
+          </Stack>
+        </DiscoveryProvider>
       </AuthProvider>
     </ThemeProvider>
   );
