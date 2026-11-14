@@ -16,6 +16,58 @@ export const APP_CONFIG = {
     walkingPreferences: 0.10,
   },
 
+  // Conversational 5-Factor Scoring Weights (Must sum to 1.0)
+  conversationalWeights: {
+    sharedInterestsAndActivities: 0.30,
+    proximity: 0.25,
+    availability: 0.20,
+    discoveryAndProfession: 0.15,
+    profileCompleteness: 0.10,
+  },
+
+  // Hyderabad Localities for Manual Discovery
+  hyderabadLocalities: [
+    'Hitec City',
+    'Madhapur',
+    'Jubilee Hills',
+    'Banjara Hills',
+    'Gachibowli',
+    'Kondapur',
+    'Financial District',
+    'Begumpet',
+    'Secunderabad',
+    'Kukatpally',
+    'Somajiguda',
+    'Mehdipatnam',
+  ] as const,
+
+  // Conversational Activities Options (Question 2)
+  discoveryActivities: [
+    { id: 'casual_walk', label: 'Casual walk', icon: 'footsteps-outline' },
+    { id: 'coffee_chat', label: 'Coffee and conversation', icon: 'cafe-outline' },
+    { id: 'explore_city', label: 'Explore the city', icon: 'map-outline' },
+    { id: 'exercise_fitness', label: 'Exercise and fitness', icon: 'fitness-outline' },
+    { id: 'talk_ideas', label: 'Talk and exchange ideas', icon: 'chatbubbles-outline' },
+    { id: 'learn_something', label: 'Learn something new', icon: 'bulb-outline' },
+    { id: 'open_plan', label: 'No particular plan — just meet someone interesting', icon: 'sparkles-outline' },
+  ],
+
+  // Popular Professions Catalog (Question 5)
+  popularProfessions: [
+    'Doctor',
+    'Software Engineer',
+    'Lawyer',
+    'Entrepreneur / Founder',
+    'Police Officer / Civil Services',
+    'Teacher / Professor',
+    'Product Designer',
+    'Student',
+    'Artist / Creative',
+    'Architect',
+    'Scientist / Researcher',
+    'Financial Analyst',
+  ],
+
   // Discovery Radius Options (km)
   radiusOptions: [1, 2, 5, 10, 15] as const,
   defaultRadiusKm: 5,

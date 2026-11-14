@@ -74,6 +74,7 @@ export interface CandidateBuddy {
   approx_area: string;
   shared_interests: string[];
   compatibility_score: number;
+  match_reasons?: string[];
 }
 
 export interface MatchItem {
@@ -162,3 +163,134 @@ export interface VerificationRequest {
   created_at: string;
   user?: Profile;
 }
+
+// ====================================================================
+// CONVERSATIONAL DISCOVERY TYPES
+// ====================================================================
+
+export type DiscoveryMode =
+  | 'surprise_me'
+  | 'similar_interests'
+  | 'profession'
+  | 'different_from_me'
+  | 'group_walk';
+
+export interface ConversationalDiscoveryFilter {
+  mode: DiscoveryMode;
+  locationType: 'current' | 'manual';
+  manualArea?: string;
+  radiusKm: DiscoveryRadius;
+  activities: string[];
+  timeframe: 'now' | 'few_hours' | 'today' | 'tomorrow' | 'scheduled';
+  scheduledDate?: string;
+  minAge: number;
+  maxAge: number;
+  genderPreference: GenderPreferenceType;
+  groupOrIndividual: 'individual' | 'group' | 'either';
+  discoveryFocus?: string;
+  selectedProfessions?: string[];
+  additionalNotes?: string;
+}
+
+// ====================================================================
+// MEETING PLAN TYPES ("PLAN OUR WALK")
+// ====================================================================
+
+export type MeetingProposalStatus = 'proposed' | 'accepted' | 'declined' | 'cancelled';
+
+export interface MeetingPlan {
+  id: string;
+  match_id: string;
+  proposer_id: string;
+  location_name: string;
+  address_or_area: string;
+  latitude?: number;
+  longitude?: number;
+  meeting_time: string;
+  status: MeetingProposalStatus;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// ====================================================================
+// GROUP WALK TYPES
+// ====================================================================
+
+export type GroupWalkCategory =
+  | 'general'
+  | 'tech_and_startups'
+  | 'fitness_and_speed'
+  | 'creative_and_arts'
+  | 'nature_and_parks'
+  | 'evening_social';
+
+export interface GroupWalk {
+  id: string;
+  creator_id: string;
+  title: string;
+  description: string;
+  meeting_place: string;
+  approx_area: string;
+  latitude?: number;
+  longitude?: number;
+  meeting_time: string;
+  max_participants: number;
+  current_participants?: number;
+  status: 'upcoming' | 'in_progress' | 'completed' | 'cancelled';
+  category: GroupWalkCategory;
+  created_at: string;
+  creator?: Partial<Profile>;
+  participants?: GroupWalkParticipant[];
+}
+
+export interface GroupWalkParticipant {
+  id: string;
+  walk_id: string;
+  user_id: string;
+  status: 'pending' | 'joined' | 'declined' | 'left';
+  created_at: string;
+  user?: Partial<Profile>;
+}
+
+// ====================================================================
+// CITY EXPLORER TYPES (HYDERABAD)
+// ====================================================================
+
+export type PlaceCategory = 'parks' | 'boardwalks' | 'popular' | 'cafes' | 'heritage';
+
+export interface CityPlace {
+  id: string;
+  name: string;
+  category: PlaceCategory;
+  area: string;
+  description: string;
+  highlights: string[];
+  bestTime: string;
+  walkingDistanceVibe: string;
+  latitude: number;
+  longitude: number;
+  image_url: string;
+  safetyRating?: string;
+}
+
+// ====================================================================
+// CONVERSATION CARDS & TEACH ME SOMETHING TYPES
+// ====================================================================
+
+export type CardCategory =
+  | 'icebreakers'
+  | 'funny'
+  | 'career'
+  | 'life'
+  | 'hobbies'
+  | 'deep'
+  | 'hyderabad';
+
+export interface ConversationCard {
+  id: string;
+  category: CardCategory;
+  categoryLabel: string;
+  question: string;
+}
+
