@@ -25,6 +25,7 @@ import { useAuth } from '../../src/context/AuthContext';
 import { Typography, Spacing, Radius } from '../../src/constants/theme';
 import { CandidateBuddy, DiscoveryRadius } from '../../src/types';
 import { matchingService } from '../../src/services/matching';
+import { isSupabaseConfigured } from '../../src/services/supabase';
 import { APP_CONFIG } from '../../src/constants/config';
 
 // Rich fallback candidates for Hyderabad preview and development testing
@@ -115,16 +116,16 @@ export default function DiscoveryScreen() {
   const loadCandidates = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await matchingService.fetchCandidates(radius);
-      if (data && data.length > 0) {
-        setCandidates(data);
-      } else {
-        // Use seed data if database RPC returned empty
+      if (!isSupabaseConfigured()) {
         setCandidates(SEEDED_HYDERABAD_CANDIDATES);
+      } else {
+        const data = await matchingService.fetchCandidates(radius);
+        setCandidates(data || []);
       }
       setCurrentIndex(0);
-    } catch {
-      setCandidates(SEEDED_HYDERABAD_CANDIDATES);
+    } catch (error) {
+      console.warn('Unable to load discovery candidates:', error);
+      setCandidates([]);
       setCurrentIndex(0);
     } finally {
       setLoading(false);
@@ -147,10 +148,30 @@ export default function DiscoveryScreen() {
     const currentBuddy = candidates[currentIndex];
     setActionInProgress(true);
 
+    if (!isSupabaseConfigured()) {
+      if (action === 'like' && currentBuddy.id === 'seed-ananya-1') {
+        router.push({
+          pathname: '/match/celebration',
+          params: {
+            matchId: 'demo-match-001',
+            partnerId: currentBuddy.id,
+            partnerName: currentBuddy.display_name,
+            partnerAvatar: currentBuddy.avatar_url || '',
+            partnerProfession: currentBuddy.profession || '',
+            partnerVerified: currentBuddy.is_profession_verified ? 'true' : 'false',
+            score: currentBuddy.compatibility_score.toString(),
+          },
+        });
+      }
+      setCurrentIndex((prev) => prev + 1);
+      setActionInProgress(false);
+      return;
+    }
+
     try {
       const result = await matchingService.sendAction(currentBuddy.id, action);
 
-      if (action === 'like' && (result.matched || currentBuddy.id.startsWith('seed-ananya'))) {
+      if (action === 'like' && result.matched) {
         // Trigger celebration screen if mutual like!
         router.push({
           pathname: '/match/celebration',
@@ -168,8 +189,8 @@ export default function DiscoveryScreen() {
 
       setCurrentIndex((prev) => prev + 1);
     } catch (e: any) {
-      console.warn('Action failed, proceeding locally:', e?.message);
-      setCurrentIndex((prev) => prev + 1);
+      console.warn('Action failed:', e?.message);
+      Alert.alert('Could not save your response', 'Please check your connection and try again.');
     } finally {
       setActionInProgress(false);
     }
