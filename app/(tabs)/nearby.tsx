@@ -24,6 +24,7 @@ import { useTheme } from '../../src/context/ThemeContext';
 import { Typography, Spacing, Radius } from '../../src/constants/theme';
 import { CandidateBuddy } from '../../src/types';
 import { matchingService } from '../../src/services/matching';
+import { isSupabaseConfigured } from '../../src/services/supabase';
 
 const FALLBACK_NEARBY: CandidateBuddy[] = [
   {
@@ -123,14 +124,15 @@ export default function NearbyScreen() {
 
   const loadData = async () => {
     try {
-      const data = await matchingService.fetchCandidates(15);
-      if (data && data.length > 0) {
-        setBuddies(data);
-      } else {
+      if (!isSupabaseConfigured()) {
         setBuddies(FALLBACK_NEARBY);
+      } else {
+        const data = await matchingService.fetchCandidates(15);
+        setBuddies(data || []);
       }
-    } catch {
-      setBuddies(FALLBACK_NEARBY);
+    } catch (error) {
+      console.warn('Unable to load nearby profiles:', error);
+      setBuddies([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
