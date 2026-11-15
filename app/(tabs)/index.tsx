@@ -110,10 +110,12 @@ export default function DiscoveryScreen() {
   const [radius, setRadius] = useState<DiscoveryRadius>(profile?.discovery_radius_km || 5);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const [actionInProgress, setActionInProgress] = useState(false);
   const [showRadiusSelector, setShowRadiusSelector] = useState(false);
 
   const loadCandidates = useCallback(async () => {
+    setLoadError(false);
     try {
       setLoading(true);
       if (!isSupabaseConfigured()) {
@@ -127,6 +129,7 @@ export default function DiscoveryScreen() {
       console.warn('Unable to load discovery candidates:', error);
       setCandidates([]);
       setCurrentIndex(0);
+      setLoadError(true);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -267,6 +270,14 @@ export default function DiscoveryScreen() {
 
         {loading ? (
           <LoadingIndicator message="Discovering compatible buddies nearby..." />
+        ) : loadError ? (
+          <EmptyState
+            icon="cloud-offline-outline"
+            title="Couldn't Load Profiles"
+            description="Check your connection and try again. We won't substitute fictional demo profiles for live results."
+            actionTitle="Try Again"
+            onAction={loadCandidates}
+          />
         ) : currentBuddy ? (
           <View style={styles.cardContainer}>
             <ProfileCard
