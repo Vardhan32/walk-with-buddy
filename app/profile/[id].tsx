@@ -78,9 +78,9 @@ export default function DetailedProfileScreen() {
               await safetyService.blockUser(buddy.id, 'User initiated block');
               Alert.alert('User Blocked', `${buddy.display_name} has been blocked.`);
               router.back();
-            } catch (e: any) {
-              Alert.alert('Notice', 'User blocked.');
-              router.back();
+            } catch (error) {
+              console.warn('Unable to block profile:', error);
+              Alert.alert('Could not block user', 'Please try again after checking your connection.');
             }
           },
         },
