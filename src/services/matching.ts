@@ -18,8 +18,8 @@ export const matchingService = {
     });
 
     if (error) {
-      console.warn('RPC get_candidate_matches failed, checking direct fallback:', error.message);
-      return [];
+      console.warn('RPC get_candidate_matches failed:', error.message);
+      throw error;
     }
 
     return (data || []) as CandidateBuddy[];
@@ -45,8 +45,8 @@ export const matchingService = {
     const { data, error } = await supabase.rpc('get_user_matches');
 
     if (error) {
-      console.warn('RPC get_user_matches error:', error.message);
-      return [];
+      console.warn('RPC get_user_matches failed:', error.message);
+      throw error;
     }
 
     return (data || []) as MatchItem[];

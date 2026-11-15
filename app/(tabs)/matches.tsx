@@ -23,6 +23,7 @@ import { useTheme } from '../../src/context/ThemeContext';
 import { Typography, Spacing, Radius } from '../../src/constants/theme';
 import { MatchItem } from '../../src/types';
 import { matchingService } from '../../src/services/matching';
+import { isSupabaseConfigured } from '../../src/services/supabase';
 
 const DEMO_MATCHES: MatchItem[] = [
   {
@@ -62,17 +63,21 @@ export default function MatchesListScreen() {
   const [matches, setMatches] = useState<MatchItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState(false);
 
   const loadMatches = async () => {
+    setLoadError(false);
     try {
-      const data = await matchingService.fetchMatches();
-      if (data && data.length > 0) {
-        setMatches(data);
-      } else {
+      if (!isSupabaseConfigured()) {
         setMatches(DEMO_MATCHES);
+      } else {
+        const data = await matchingService.fetchMatches();
+        setMatches(data || []);
       }
-    } catch {
-      setMatches(DEMO_MATCHES);
+    } catch (error) {
+      console.warn('Unable to load matches:', error);
+      setMatches([]);
+      setLoadError(true);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -164,11 +169,13 @@ export default function MatchesListScreen() {
         <LoadingIndicator message="Loading your connections..." />
       ) : matches.length === 0 ? (
         <EmptyState
-          icon="chatbubbles-outline"
-          title="No Connections Yet"
-          description="Like candidate buddies on Discovery. When the interest is mutual, your match will appear here!"
-          actionTitle="Find Buddies Now"
-          onAction={() => router.push('/(tabs)')}
+          icon={loadError ? "cloud-offline-outline" : "chatbubbles-outline"}
+          title={loadError ? "Couldn't Load Matches" : "No Connections Yet"}
+          description={loadError
+            ? "Check your connection and try again. We won't show demo profiles as real matches."
+            : "Like candidate buddies on Discovery. When the interest is mutual, your match will appear here!"}
+          actionTitle={loadError ? "Try Again" : "Find Buddies Now"}
+          onAction={loadError ? loadMatches : () => router.push('/(tabs)')}
         />
       ) : (
         <FlatList

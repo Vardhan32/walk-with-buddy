@@ -24,6 +24,7 @@ import { useTheme } from '../../src/context/ThemeContext';
 import { Typography, Spacing, Radius } from '../../src/constants/theme';
 import { CandidateBuddy } from '../../src/types';
 import { matchingService } from '../../src/services/matching';
+import { isSupabaseConfigured } from '../../src/services/supabase';
 
 const FALLBACK_NEARBY: CandidateBuddy[] = [
   {
@@ -120,17 +121,21 @@ export default function NearbyScreen() {
   const [buddies, setBuddies] = useState<CandidateBuddy[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState(false);
 
   const loadData = async () => {
+    setLoadError(false);
     try {
-      const data = await matchingService.fetchCandidates(15);
-      if (data && data.length > 0) {
-        setBuddies(data);
-      } else {
+      if (!isSupabaseConfigured()) {
         setBuddies(FALLBACK_NEARBY);
+      } else {
+        const data = await matchingService.fetchCandidates(15);
+        setBuddies(data || []);
       }
-    } catch {
-      setBuddies(FALLBACK_NEARBY);
+    } catch (error) {
+      console.warn('Unable to load nearby profiles:', error);
+      setBuddies([]);
+      setLoadError(true);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -222,11 +227,21 @@ export default function NearbyScreen() {
         <LoadingIndicator message="Scanning nearby areas..." />
       ) : filtered.length === 0 ? (
         <EmptyState
-          icon="search-outline"
-          title="No Buddies Match Your Filter"
-          description="Try clearing your search term to see all people discovering nearby."
-          actionTitle="Clear Search"
-          onAction={() => setSearch('')}
+          icon={loadError ? "cloud-offline-outline" : "search-outline"}
+          title={loadError
+            ? "Couldn't Load Nearby Profiles"
+            : search.trim()
+              ? "No Buddies Match Your Filter"
+              : "No Nearby Profiles Yet"}
+          description={loadError
+            ? "Check your connection and try again. Live results won't be replaced with sample people."
+            : search.trim()
+              ? "Try clearing your search term to see all available profiles."
+              : "There are no profiles available in this radius right now."}
+          actionTitle={loadError ? "Try Again" : search.trim() ? "Clear Search" : "Refresh"}
+          onAction={loadError || !search.trim()
+            ? () => { setRefreshing(true); loadData(); }
+            : () => setSearch('')}
         />
       ) : (
         <FlatList

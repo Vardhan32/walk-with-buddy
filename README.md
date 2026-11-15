@@ -10,7 +10,7 @@
 
 - [x] **Project Scaffolding**: React Native + Expo SDK 58 + TypeScript + Expo Router.
 - [x] **Design System**: Light & Dark themes, typography scale, responsive layout, reusable buttons, cards, avatars, badges, and modals.
-- [x] **All 24 Required Screens Connected**:
+- [x] **Prototype screens and navigation**:
   1. `app/index.tsx` (Splash screen & route orchestrator)
   2. `app/welcome.tsx` (Welcome value proposition)
   3. `app/onboarding/index.tsx` (Onboarding carousel)
@@ -36,12 +36,12 @@
   23. `app/safety/guidelines.tsx` (Hyderabad safety guidelines & public walking spots)
   24. `app/settings/delete-account.tsx` (Permanent account erasure with CASCADE)
   25. `app/admin/index.tsx` (Admin dashboard), `app/admin/reports.tsx` (Reports review & suspension), `app/admin/verifications.tsx` (Badge approval & review)
-- [x] **Database & SQL Migration**: Complete migration script in `supabase/migrations/20261114000000_walk_with_buddy_schema.sql` with tables, triggers, indexes, RLS policies, and secure RPC functions.
-- [x] **Matching Engine**: Configurable 4-factor scoring algorithm (Shared Interests 40%, Proximity 30%, Availability 20%, Walking 10%) with mutual gender preference enforcement.
-- [x] **Mutual Matching & Anti-Collision**: Unique constraint `CHECK (user1_id < user2_id)` preventing duplicate matches and race conditions.
-- [x] **Real-Time Chat**: Configured for Supabase Realtime with optimistic UI updates and instant delivery.
+- [x] **Supabase schema**: Initial SQL migration in `supabase/migrations/20261114000000_walk_with_buddy_schema.sql` with tables, triggers, indexes, RLS policies, and secure RPC functions.
+- [x] **Matching logic**: Four-factor compatibility scoring (interests, proximity, availability, walking preference) is implemented in the client helper and database RPC. Live discovery requires the Supabase migration and project configuration.
+- [x] **Match persistence**: The migration defines canonical user-pair ordering to prevent duplicate match pairs.
+- [x] **Chat integration**: Message writes and Supabase Realtime subscriptions are implemented; live delivery depends on the project's Realtime publication and RLS configuration.
 - [x] **GPS & Location Privacy**: Coarse location, approximate distance only (km), exact GPS coordinates never revealed.
-- [x] **Automated Tests**: Comprehensive test suite (`npm test`) validating matching engine calculations, gender matrices, canonical ordering, and Haversine distance.
+- [x] **Tests**: `npm test` runs the pure matching-logic test suite; `npm run typecheck` checks TypeScript types.
 - [x] **Zero TypeScript Errors**: Passes `npx tsc --noEmit` cleanly.
 
 ---
