@@ -23,6 +23,7 @@ import { useTheme } from '../../src/context/ThemeContext';
 import { Typography, Spacing, Radius } from '../../src/constants/theme';
 import { CandidateBuddy } from '../../src/types';
 import { matchingService } from '../../src/services/matching';
+import { isSupabaseConfigured } from '../../src/services/supabase';
 import { safetyService } from '../../src/services/safety';
 
 export default function DetailedProfileScreen() {
@@ -59,6 +60,11 @@ export default function DetailedProfileScreen() {
   const [actionLoading, setActionLoading] = useState(false);
 
   const handleBlock = () => {
+    if (!isSupabaseConfigured()) {
+      Alert.alert('Demo mode', 'Blocking is available after you connect a Supabase project.');
+      return;
+    }
+
     Alert.alert(
       `Block ${buddy.display_name}?`,
       'They will no longer be able to discover your profile or send you messages.',
@@ -82,11 +88,40 @@ export default function DetailedProfileScreen() {
     );
   };
 
+  const handleReport = () => {
+    if (!isSupabaseConfigured()) {
+      Alert.alert('Demo mode', 'Reporting is available after you connect a Supabase project.');
+      return;
+    }
+    setShowReportModal(true);
+  };
+
   const handleLike = async () => {
+    if (!isSupabaseConfigured()) {
+      if (buddy.id === 'seed-ananya-1') {
+        router.push({
+          pathname: '/match/celebration',
+          params: {
+            matchId: 'demo-match-001',
+            partnerId: buddy.id,
+            partnerName: buddy.display_name,
+            partnerAvatar: buddy.avatar_url || '',
+            partnerProfession: buddy.profession || '',
+            partnerVerified: buddy.is_profession_verified ? 'true' : 'false',
+            score: buddy.compatibility_score.toString(),
+          },
+        });
+      } else {
+        Alert.alert('Demo mode', 'This sample interaction is only a preview and will not be saved.');
+        router.back();
+      }
+      return;
+    }
+
     try {
       setActionLoading(true);
       const res = await matchingService.sendAction(buddy.id, 'like');
-      if (res.matched || buddy.id.startsWith('seed-ananya')) {
+      if (res.matched) {
         router.push({
           pathname: '/match/celebration',
           params: {
@@ -103,8 +138,9 @@ export default function DetailedProfileScreen() {
         Alert.alert('Liked!', `You liked ${buddy.display_name}. We will let you know when they like you back!`);
         router.back();
       }
-    } catch {
-      router.back();
+    } catch (error) {
+      console.warn('Unable to send like:', error);
+      Alert.alert('Could not send like', 'Please check your connection and try again.');
     } finally {
       setActionLoading(false);
     }
@@ -117,7 +153,7 @@ export default function DetailedProfileScreen() {
         showBack
         rightAction={
           <View style={styles.headerRightActions}>
-            <TouchableOpacity onPress={() => setShowReportModal(true)} style={styles.iconBtn}>
+            <TouchableOpacity onPress={handleReport} style={styles.iconBtn}>
               <Ionicons name="flag-outline" size={20} color={colors.textSecondary} />
             </TouchableOpacity>
             <TouchableOpacity onPress={handleBlock} style={styles.iconBtn}>
